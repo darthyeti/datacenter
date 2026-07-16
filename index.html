@@ -348,7 +348,10 @@
 
   <!-- ============ Ergebnis ============ -->
   <section class="card" id="reportSection">
-    <h2>Ergebnisübersicht</h2>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0">Ergebnisübersicht</h2>
+      <button id="btnCopyResultImg" class="no-print" style="font-size:12px;padding:4px 10px">Als Bild kopieren</button>
+    </div>
     <p class="hint" id="reportMeta"></p>
     <div class="scroll-x">
       <table class="result-table" id="resultTable"></table>
@@ -398,6 +401,7 @@
         <button id="btnSchemaFromScenario">Compute aus Szenario A übernehmen</button>
         <button id="btnSchemaSvg">SVG exportieren</button>
         <button id="btnSchemaDrawio">draw.io exportieren</button>
+        <button id="btnCopySchemaImg">Als Bild kopieren</button>
       </div>
     </div>
 
@@ -505,7 +509,22 @@ function num(v) {
   const r = parseFloat(s);
   return isFinite(r) ? r : 0;
 }
+/* Feste helle Farbpalette für Bild-Exporte (immer gut lesbar, unabhängig vom aktuellen Theme). */
+const LIGHT_PALETTE = {
+  "--surface-1": "#fcfcfb", "--page": "#f9f9f7", "--text-primary": "#0b0b0b", "--text-secondary": "#52514e",
+  "--muted": "#898781", "--grid": "#e1e0d9", "--baseline": "#c3c2b7", "--border": "rgba(11,11,11,0.10)",
+  "--series-1": "#2a78d6", "--series-2": "#1baf7a", "--series-3": "#eda100", "--series-4": "#008300",
+  "--series-5": "#4a3aa7", "--series-6": "#e34948", "--ist-bar": "#a5a49c", "--accent": "#2a78d6",
+  "--good": "#006300", "--warn-bg": "#fff7e6", "--input-bg": "#ffffff",
+};
+let imgExportMode = false;
+/* Führt fn() aus, während cssVar() feste helle Farben statt der Live-Theme-Werte liefert (für Bild-Exporte). */
+function withLightPalette(fn) {
+  imgExportMode = true;
+  try { return fn(); } finally { imgExportMode = false; }
+}
 function cssVar(name) {
+  if (imgExportMode && LIGHT_PALETTE[name]) return LIGHT_PALETTE[name];
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 function esc(s) {
@@ -699,6 +718,7 @@ function growthSeries(ist) {
   const mk = base => Array.from({ length: years }, (_, j) => Math.round(base * Math.pow(g, j))); // Jahr 1 = Ist
   return {
     years,
+    growthPct: sc.growth || 0,
     rows: [
       { label: "vCPU", vals: mk(ist.vcpu) },
       { label: "vRAM GB", vals: mk(ist.vram) },
@@ -755,7 +775,8 @@ function growthChartParts(ist, C) {
     lg += `<line x1="${lx}" x2="${lx + 16}" y1="${H - 12}" y2="${H - 12}" stroke="${r.color}" stroke-width="2"/><circle cx="${lx + 8}" cy="${H - 12}" r="2.6" fill="${r.color}"/><text x="${lx + 20}" y="${H - 9}" font-size="9.5" fill="${C.text}">${esc(r.label)}</text>`;
     lx += 20 + r.label.length * 5.6 + 18;
   });
-  const inner = `<text x="${padL + iW / 2}" y="11" text-anchor="middle" font-size="11.5" font-weight="650" fill="${C.text}">Wachstum – Jahre</text>${grid}${ylab}${xlab}${plot}${lg}`;
+  const title = `Wachstum – Jahre (${nf0.format(s.growthPct)} % p. a.)`;
+  const inner = `<text x="${padL + iW / 2}" y="11" text-anchor="middle" font-size="11.5" font-weight="650" fill="${C.text}">${esc(title)}</text>${grid}${ylab}${xlab}${plot}${lg}`;
   return { W, H, inner };
 }
 
@@ -817,20 +838,18 @@ function growthImageSVG(ist) {
   return { svg, W, H };
 }
 
-/* Rastert das kombinierte SVG und legt es als PNG in die Zwischenablage (Fallback: Download). */
-async function copyGrowthImage() {
-  const out = growthImageSVG(calcIst());
-  if (!out) return null;
+/* Rastert ein eigenständiges SVG zu PNG und legt es in die Zwischenablage (Fallback: Download). */
+async function copySvgAsImage(svgString, W, H, filename) {
   const scale = 2;
-  const url = URL.createObjectURL(new Blob([out.svg], { type: "image/svg+xml;charset=utf-8" }));
+  const url = URL.createObjectURL(new Blob([svgString], { type: "image/svg+xml;charset=utf-8" }));
   try {
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
     const canvas = document.createElement("canvas");
-    canvas.width = out.W * scale; canvas.height = out.H * scale;
+    canvas.width = W * scale; canvas.height = H * scale;
     const ctx = canvas.getContext("2d");
     ctx.scale(scale, scale);
-    ctx.drawImage(img, 0, 0, out.W, out.H);
+    ctx.drawImage(img, 0, 0, W, H);
     const blob = await new Promise(res => canvas.toBlob(res, "image/png"));
     if (navigator.clipboard && window.ClipboardItem) {
       try {
@@ -838,11 +857,100 @@ async function copyGrowthImage() {
         return true;
       } catch (e) {}
     }
-    download(blob, (state.project || "wachstum") + ".png");
+    download(blob, filename);
     return false;
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+async function copyGrowthImage() {
+  const out = growthImageSVG(calcIst());
+  if (!out) return null;
+  return copySvgAsImage(out.svg, out.W, out.H, (state.project || "wachstum") + ".png");
+}
+
+/* Aktuelle Schema-Zeichnung als eigenständiges SVG (feste helle Palette, mit Hintergrund). */
+function schemaImageSVG() {
+  const raw = withLightPalette(() => drawSchemaSVG(state.schema));
+  const m = /^<svg viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(raw);
+  if (!m) return null; // z. B. Hinweistext statt SVG, wenn kein Standort angelegt ist
+  const W = parseFloat(m[1]), H = parseFloat(m[2]);
+  const svg = raw
+    .replace("<svg ", `<svg xmlns="http://www.w3.org/2000/svg" `)
+    .replace(/(<svg[^>]*>)/, `$1<rect x="0" y="0" width="${W}" height="${H}" fill="${LIGHT_PALETTE["--page"]}"/>`);
+  return { svg, W, H };
+}
+async function copySchemaImage() {
+  const out = schemaImageSVG();
+  if (!out) return null;
+  return copySvgAsImage(out.svg, out.W, out.H, (state.schema.title || state.project || "schema") + ".png");
+}
+
+/* Ergebnistabelle als eigenständiges, auf den Inhalt zugeschnittenes SVG-Bild (linksbündig, keine unnötige Breite). */
+function resultTableImageSVG() {
+  const table = $("#resultTable");
+  if (!table || !table.rows.length) return null;
+  const C = LIGHT_PALETTE;
+  const swatchColors = [C["--ist-bar"], ...state.scenarios.map((sc, i) => C[SCENARIO_COLORS[i % SCENARIO_COLORS.length]])];
+  const trs = [...table.rows];
+  const headCells = [...trs[0].cells];
+  const nCols = headCells.length;
+  const dataRows = trs.slice(1).filter(tr => !tr.classList.contains("section-row"));
+
+  const meas = document.createElement("canvas").getContext("2d");
+  const sw = 9, swatchW = sw + 6, padX = 10;
+  const colW = new Array(nCols).fill(0);
+  meas.font = '650 11.5px "Segoe UI", Arial, sans-serif';
+  headCells.forEach((th, c) => {
+    colW[c] = Math.max(colW[c], meas.measureText(th.textContent.trim()).width + (c > 0 ? swatchW : 0));
+  });
+  meas.font = '400 11.5px "Segoe UI", Arial, sans-serif';
+  dataRows.forEach(tr => {
+    [...tr.cells].forEach((td, c) => {
+      colW[c] = Math.max(colW[c], meas.measureText(td.textContent.trim()).width);
+    });
+  });
+  const colX = []; { let x = 0; colW.forEach(w => { colX.push(x); x += w + padX * 2; }); }
+  const W = colX[nCols - 1] + colW[nCols - 1] + padX * 2;
+
+  const rowH = 24, sectionH = 30;
+  let y = 0, body = "";
+  const gridLine = (color) => `<line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="${color}" stroke-width="1"/>`;
+
+  y += rowH;
+  headCells.forEach((th, c) => {
+    const label = th.textContent.trim();
+    const swatch = c > 0 ? `<rect x="${colX[c] + padX}" y="${y - rowH / 2 - sw / 2}" width="${sw}" height="${sw}" rx="3" fill="${swatchColors[c]}"/>` : "";
+    const tx = c > 0 ? colX[c] + padX + swatchW : colX[c] + padX;
+    body += swatch + `<text x="${tx}" y="${y - rowH / 2 + 4}" font-size="11.5" font-weight="650" fill="${C["--text-secondary"]}">${esc(label)}</text>`;
+  });
+  body += gridLine(C["--grid"]);
+
+  trs.slice(1).forEach(tr => {
+    if (tr.classList.contains("section-row")) {
+      y += sectionH;
+      body += `<text x="${padX}" y="${y - 8}" font-size="10.5" font-weight="650" letter-spacing="0.04em" fill="${C["--muted"]}">${esc(tr.cells[0].textContent.trim().toUpperCase())}</text>`;
+      body += gridLine(C["--baseline"]);
+      return;
+    }
+    y += rowH;
+    [...tr.cells].forEach((td, c) => {
+      const val = td.textContent.trim();
+      const x = c === 0 ? colX[c] + padX : colX[c] + colW[c] + padX;
+      body += `<text x="${x}" y="${y - rowH / 2 + 4}" text-anchor="${c === 0 ? "start" : "end"}" font-size="11.5" fill="${C["--text-primary"]}">${esc(val)}</text>`;
+    });
+    body += gridLine(C["--grid"]);
+  });
+
+  const H = y + 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Segoe UI, Arial, sans-serif">`
+    + `<rect x="0" y="0" width="${W}" height="${H}" fill="${C["--surface-1"]}"/>${body}</svg>`;
+  return { svg, W, H };
+}
+async function copyResultTableImage() {
+  const out = resultTableImageSVG();
+  if (!out) return null;
+  return copySvgAsImage(out.svg, out.W, out.H, (state.project || "ergebnis") + ".png");
 }
 
 function copyText(text) {
@@ -1590,6 +1698,18 @@ $("#btnSchemaDrawio").addEventListener("click", () => {
   const xml = schemaToDrawio(state.schema);
   download(new Blob([xml], { type: "application/xml" }),
     (state.schema.title || state.project || "schema") + ".drawio");
+});
+$("#btnCopySchemaImg").addEventListener("click", async (e) => {
+  const btn = e.currentTarget, orig = btn.textContent;
+  const copied = await copySchemaImage();
+  btn.textContent = copied === null ? "Kein Schema" : copied === false ? "Als PNG gespeichert ✓" : "Bild kopiert ✓";
+  setTimeout(() => { btn.textContent = orig; }, 1600);
+});
+$("#btnCopyResultImg").addEventListener("click", async (e) => {
+  const btn = e.currentTarget, orig = btn.textContent;
+  const copied = await copyResultTableImage();
+  btn.textContent = copied === null ? "Keine Daten" : copied === false ? "Als PNG gespeichert ✓" : "Bild kopiert ✓";
+  setTimeout(() => { btn.textContent = orig; }, 1600);
 });
 $("#btnCopyGrowth").addEventListener("click", async (e) => {
   const btn = e.currentTarget, orig = btn.textContent;  // vor await erfassen (danach ist currentTarget null)
