@@ -600,6 +600,7 @@ function calcScenario(sc, ist) {
     totCores, totRam, years: growthYears(sc),
     sockets: hosts * sc.sockets,
     ratio: totCores > 0 ? vcpuPlan / (totCores * htFactor()) : 0,
+    ratioToday: totCores > 0 ? ist.vcpu / (totCores * htFactor()) : 0,
     ramUtil: totRam > 0 ? vramPlan / totRam : 0,
     ramUtilToday: totRam > 0 ? ist.vram / totRam : 0,
     limiter: hostsCpu >= hostsRam ? "CPU" : "RAM",
@@ -992,7 +993,7 @@ function renderResultTable(ist, results) {
   section("Auslastung");
   row("vCPU (geplant)", nf0.format(ist.vcpu), r => nf0.format(r.vcpuPlan));
   row("vDisk geplant (TB)", nf0.format(ist.vdisk), r => nf0.format(r.vdiskPlan));
-  row(state.ht ? "Ratio vCPU : Thread" : "Ratio vCPU : pCore", fmtRatio(ist.ratio), r => fmtRatio(r.ratio));
+  row(state.ht ? "Ratio vCPU : Thread" : "Ratio vCPU : pCore", fmtRatio(ist.ratio), r => `${fmtRatio(r.ratioToday)} (${fmtRatio(r.ratio)})`);
   row("RAM-Auslastung", fmtPct(ist.ramUtil), r => `${fmtPct(r.ramUtilToday)} (${fmtPct(r.ramUtil)})`);
 
   section("Lizenzmengen");
