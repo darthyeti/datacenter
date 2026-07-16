@@ -261,7 +261,7 @@
   <!-- ============ IST-Umgebung ============ -->
   <section class="card">
     <h2>IST-Umgebung</h2>
-    <p class="hint">Serverbestand als Gruppen gleicher Hosts erfassen (z. B. pro Cluster). vCPU und vRAM = insgesamt provisionierte Werte je Gruppe.</p>
+    <p class="hint">Serverbestand als Gruppen gleicher Hosts erfassen (z. B. pro Cluster). vCPU, vRAM und vDisk = insgesamt provisionierte Werte je Gruppe.</p>
     <div class="scroll-x">
       <table class="input-table" id="groupTable">
         <thead>
@@ -274,6 +274,7 @@
             <th>CPU-Gen-Faktor</th>
             <th>Prov. vCPU (gesamt)</th>
             <th>Prov. vRAM (GB gesamt)</th>
+            <th>Prov. vDisk (TB gesamt)</th>
             <th class="no-print"></th>
           </tr>
         </thead>
@@ -398,6 +399,16 @@
         <button id="btnSchemaSvg">SVG exportieren</button>
       </div>
     </div>
+
+    <div style="margin-top:18px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <strong style="font-size:13px">Geplantes Wachstum über die Jahre</strong>
+        <span class="hint" style="display:inline;margin:0">Basis: Ist-Werte, Wachstum &amp; Jahre aus Szenario A. Jahr 1 = Ist.</span>
+        <button id="btnCopyGrowth" class="no-print" style="font-size:12px;padding:4px 10px">Tabelle kopieren</button>
+      </div>
+      <div class="scroll-x" style="margin-top:8px"><table class="result-table" id="growthTable"></table></div>
+    </div>
+
     <div id="schemaCanvas" style="margin-top:14px;overflow-x:auto"></div>
   </section>
 
@@ -406,9 +417,9 @@
 <dialog id="pasteDialog">
   <h2 style="margin-top:0">Aus Excel einfügen</h2>
   <p class="hint">Zeilen aus Excel kopieren und hier einfügen. Spaltenreihenfolge:<br>
-  <code>Bezeichnung · Server · Sockel · Cores/Sockel · RAM(GB) · Gen-Faktor · vCPU · vRAM(GB)</code><br>
-  Der Gen-Faktor darf fehlen (dann 1,0). Bestehende Gruppen werden ersetzt.</p>
-  <textarea id="pasteArea" placeholder="Cluster-Prod	12	2	16	512	0,8	960	4800"></textarea>
+  <code>Bezeichnung · Server · Sockel · Cores/Sockel · RAM(GB) · Gen-Faktor · vCPU · vRAM(GB) · vDisk(TB)</code><br>
+  Der Gen-Faktor darf fehlen (dann 1,0, ohne vDisk-Spalte). vDisk ist optional (nur mit Gen-Faktor). Bestehende Gruppen werden ersetzt.</p>
+  <textarea id="pasteArea" placeholder="Cluster-Prod	12	2	16	512	0,8	960	4800	120"></textarea>
   <div class="toolbar" style="justify-content:flex-end">
     <button id="pasteCancel">Abbrechen</button>
     <button id="pasteOk" class="primary">Übernehmen</button>
@@ -461,12 +472,12 @@ let state = {
   project: "",
   ht: false,
   groups: [
-    { name: "Cluster Prod", n: 8, sockets: 2, cores: 16, ram: 512, factor: 0.8, vcpu: 820, vram: 3400 },
-    { name: "Cluster Test/Dev", n: 4, sockets: 2, cores: 12, ram: 384, factor: 0.8, vcpu: 380, vram: 1200 },
+    { name: "Cluster Prod", n: 8, sockets: 2, cores: 16, ram: 512, factor: 0.8, vcpu: 820, vram: 3400, vdisk: 120 },
+    { name: "Cluster Test/Dev", n: 4, sockets: 2, cores: 12, ram: 384, factor: 0.8, vcpu: 380, vram: 1200, vdisk: 40 },
   ],
   scenarios: [
-    { name: "Szenario A", sockets: 2, cores: 32, ram: 1024, factor: 1.3, ratio: 4, growth: 15, ramUtil: 85, reserve: 1 },
-    { name: "Szenario B", sockets: 1, cores: 64, ram: 1536, factor: 1.4, ratio: 3, growth: 15, ramUtil: 85, reserve: 1 },
+    { name: "Szenario A", sockets: 2, cores: 32, ram: 1024, factor: 1.3, ratio: 4, growth: 5, years: 5, ramUtil: 85, reserve: 1 },
+    { name: "Szenario B", sockets: 1, cores: 64, ram: 1536, factor: 1.4, ratio: 3, growth: 5, years: 5, ramUtil: 85, reserve: 1 },
   ],
   prices: { win: null, vmw: null, hpe: null },
   schema: defaultSchema(),
@@ -500,7 +511,7 @@ function esc(s) {
 function htFactor() { return state.ht ? 2 : 1; }
 
 function calcIst() {
-  let servers = 0, sockets = 0, pcores = 0, perfCores = 0, ram = 0, vcpu = 0, vram = 0, vcpuWeighted = 0;
+  let servers = 0, sockets = 0, pcores = 0, perfCores = 0, ram = 0, vcpu = 0, vram = 0, vdisk = 0, vcpuWeighted = 0;
   for (const g of state.groups) {
     const gc = g.n * g.sockets * g.cores;
     servers += g.n;
@@ -510,16 +521,21 @@ function calcIst() {
     ram += g.n * g.ram;
     vcpu += g.vcpu;
     vram += g.vram;
+    vdisk += (g.vdisk || 0);
     vcpuWeighted += g.vcpu * (g.factor || 1);
   }
   const base = pcores * htFactor();
   return {
-    servers, sockets, pcores, perfCores, ram, vcpu, vram, vcpuWeighted,
+    servers, sockets, pcores, perfCores, ram, vcpu, vram, vdisk, vcpuWeighted,
     ratio: base > 0 ? vcpu / base : 0,
     ramUtil: ram > 0 ? vram / ram : 0,
     lic: calcIstLicenses(),
   };
 }
+
+/* Wachstumsfaktor: g% pro Jahr, Jahr 1 = Ist-Stand → über `years` Jahre = (1+g)^(years-1). */
+function growthYears(sc) { return Math.max(1, Math.round(sc.years || 1)); }
+function growthFactorOf(sc) { return Math.pow(1 + (sc.growth || 0) / 100, growthYears(sc) - 1); }
 
 function licPerHost(sockets, cores) {
   return {
@@ -541,9 +557,10 @@ function calcIstLicenses() {
 }
 
 function calcScenario(sc, ist) {
-  const growth = 1 + sc.growth / 100;
+  const growth = growthFactorOf(sc);         // Zinseszins über die Jahre (Jahr 1 = Ist)
   const vcpuPlan = ist.vcpu * growth;
   const vramPlan = ist.vram * growth;
+  const vdiskPlan = ist.vdisk * growth;
   const hostBase = sc.sockets * sc.cores * htFactor();          // Kapazitätseinheiten je Host
   const demandUnits = ist.vcpuWeighted * growth / (sc.ratio * (sc.factor || 1)); // benötigte Basis-Cores neu
   const hostsCpu = hostBase > 0 ? Math.ceil(demandUnits / hostBase) : 0;
@@ -555,8 +572,8 @@ function calcScenario(sc, ist) {
   const totRam = hosts * sc.ram;
   const l = licPerHost(sc.sockets, sc.cores);
   return {
-    vcpuPlan, vramPlan, hostsCpu, hostsRam, hostsNet, hosts,
-    totCores, totRam,
+    vcpuPlan, vramPlan, vdiskPlan, hostsCpu, hostsRam, hostsNet, hosts,
+    totCores, totRam, years: growthYears(sc),
     sockets: hosts * sc.sockets,
     ratio: totCores > 0 ? vcpuPlan / (totCores * htFactor()) : 0,
     ramUtil: totRam > 0 ? vramPlan / totRam : 0,
@@ -569,7 +586,7 @@ function calcScenario(sc, ist) {
 const GROUP_COLS = [
   ["name", "text", "name-col"], ["n", "number", "num-col"], ["sockets", "number", "num-col"],
   ["cores", "number", "num-col"], ["ram", "number", "num-col"], ["factor", "number", "num-col"],
-  ["vcpu", "number", "num-col"], ["vram", "number", "num-col"],
+  ["vcpu", "number", "num-col"], ["vram", "number", "num-col"], ["vdisk", "number", "num-col"],
 ];
 
 function renderGroups() {
@@ -606,7 +623,8 @@ function renderScenarios() {
             <span class="ratio-val" data-out="ratio">${nf1.format(sc.ratio)} : 1</span>
           </div>
         </div>
-        <div class="field"><label>Wachstum (%)</label><input type="number" data-key="growth" step="1" value="${sc.growth}"></div>
+        <div class="field"><label>Wachstum (% p. a.)</label><input type="number" data-key="growth" step="1" value="${sc.growth}"></div>
+        <div class="field"><label>Jahre (Jahr 1 = Ist)</label><input type="number" data-key="years" min="1" step="1" value="${sc.years}"></div>
         <div class="field"><label>Max. RAM-Auslastung (%)</label><input type="number" data-key="ramUtil" min="1" max="100" step="1" value="${sc.ramUtil}"></div>
         <div class="field"><label>Reserve-Hosts (N+x)</label><input type="number" data-key="reserve" min="0" step="1" value="${sc.reserve}"></div>
       </div>
@@ -631,6 +649,7 @@ function recalc() {
     [fmtRatio(ist.ratio), state.ht ? "vCPU : Thread" : "vCPU : pCore"],
     [nf0.format(ist.ram) + " GB", "RAM gesamt"],
     [fmtPct(ist.ramUtil), "vRAM-Provisionierung"],
+    [nf0.format(ist.vdisk) + " TB", "vDisk gesamt"],
   ].map(([v, l]) => `<div class="kpi"><div class="val">${v}</div><div class="lbl">${l}</div></div>`).join("");
 
   // Szenario-Ergebnisse in den Karten
@@ -641,13 +660,15 @@ function recalc() {
     card.querySelector("[data-results]").innerHTML = `
       <div class="res-line big"><span class="k">Benötigte Hosts (inkl. Reserve)</span><span class="v">${nf0.format(r.hosts)}</span></div>
       <div class="res-line"><span class="k">davon CPU-bedingt / RAM-bedingt</span><span class="v">${nf0.format(r.hostsCpu)} / ${nf0.format(r.hostsRam)} <span class="limited">(${r.limiter}-limitiert)</span></span></div>
-      <div class="res-line"><span class="k">vCPU geplant (inkl. Wachstum)</span><span class="v">${nf0.format(r.vcpuPlan)}</span></div>
+      <div class="res-line"><span class="k">vCPU geplant (nach ${nf0.format(r.years)} J.)</span><span class="v">${nf0.format(r.vcpuPlan)}</span></div>
+      <div class="res-line"><span class="k">vDisk geplant (TB)</span><span class="v">${nf0.format(r.vdiskPlan)}</span></div>
       <div class="res-line"><span class="k">Effektive Ratio (alle Hosts)</span><span class="v">${fmtRatio(r.ratio)}</span></div>
       <div class="res-line"><span class="k">RAM-Auslastung (alle Hosts)</span><span class="v">${fmtPct(r.ramUtil)}</span></div>`;
   });
 
   renderResultTable(ist, results);
   renderCharts(ist, results);
+  renderGrowthTable(ist);
 
   $("#reportMeta").textContent =
     (state.project ? state.project + " · " : "") +
@@ -662,6 +683,54 @@ function recalc() {
 }
 
 function priceVal(id) { const v = num($(id).value); return v > 0 ? v : 0; }
+
+/* ---------- Wachstum über die Jahre (Basis Ist, Wachstum/Jahre aus Szenario A) ---------- */
+function growthSeries(ist) {
+  const sc = state.scenarios[0];
+  if (!sc) return null;
+  const years = growthYears(sc);
+  const g = 1 + (sc.growth || 0) / 100;
+  const mk = base => Array.from({ length: years }, (_, j) => Math.round(base * Math.pow(g, j))); // Jahr 1 = Ist
+  return {
+    years,
+    rows: [
+      { label: "vCPU", vals: mk(ist.vcpu) },
+      { label: "vRAM GB", vals: mk(ist.vram) },
+      { label: "vDISK TB", vals: mk(ist.vdisk) },
+    ],
+  };
+}
+
+function renderGrowthTable(ist) {
+  const el = $("#growthTable");
+  const s = growthSeries(ist);
+  if (!s) { el.innerHTML = ""; return; }
+  const head = `<tr><th>Wachstum – Jahre</th>${Array.from({ length: s.years }, (_, j) => `<th>Jahr ${j + 1}</th>`).join("")}</tr>`;
+  const body = s.rows.map(r => `<tr><td>${r.label}</td>${r.vals.map(v => `<td>${nf0.format(v)}</td>`).join("")}</tr>`).join("");
+  el.innerHTML = head + body;
+}
+
+function growthTSV(ist) {
+  const s = growthSeries(ist);
+  if (!s) return "";
+  const header = ["Wachstum – Jahre", ...Array.from({ length: s.years }, (_, j) => "Jahr " + (j + 1))].join("\t");
+  const rows = s.rows.map(r => [r.label, ...r.vals].join("\t"));
+  return [header, ...rows].join("\n");
+}
+
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+  }
+  return Promise.resolve(legacyCopy(text));
+}
+function legacyCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); } catch (e) {}
+  document.body.removeChild(ta);
+}
 
 function renderResultTable(ist, results) {
   const pWin = priceVal("#priceWin"), pVmw = priceVal("#priceVmw"), pHpe = priceVal("#priceHpe");
@@ -686,6 +755,7 @@ function renderResultTable(ist, results) {
 
   section("Auslastung");
   row("vCPU (geplant)", nf0.format(ist.vcpu), r => nf0.format(r.vcpuPlan));
+  row("vDisk geplant (TB)", nf0.format(ist.vdisk), r => nf0.format(r.vdiskPlan));
   row(state.ht ? "Ratio vCPU : Thread" : "Ratio vCPU : pCore", fmtRatio(ist.ratio), r => fmtRatio(r.ratio));
   row("RAM-Auslastung", fmtPct(ist.ramUtil), r => fmtPct(r.ramUtil));
 
@@ -1141,7 +1211,7 @@ $("#groupBody").addEventListener("click", (e) => {
   }
 });
 $("#btnAddGroup").addEventListener("click", () => {
-  state.groups.push({ name: "Gruppe " + (state.groups.length + 1), n: 1, sockets: 2, cores: 16, ram: 512, factor: 1, vcpu: 0, vram: 0 });
+  state.groups.push({ name: "Gruppe " + (state.groups.length + 1), n: 1, sockets: 2, cores: 16, ram: 512, factor: 1, vcpu: 0, vram: 0, vdisk: 0 });
   renderGroups(); recalc();
 });
 
@@ -1227,6 +1297,7 @@ $("#pasteOk").addEventListener("click", () => {
       factor: hasFactor ? (p(5) || 1) : 1,
       vcpu: hasFactor ? p(6) : p(5),
       vram: hasFactor ? p(7) : p(6),
+      vdisk: hasFactor ? p(8) : 0,   // vDisk (TB) optional als 9. Spalte (nur mit Gen-Faktor)
     });
   }
   if (groups.length) { state.groups = groups; renderGroups(); recalc(); }
@@ -1326,6 +1397,12 @@ $("#btnSchemaSvg").addEventListener("click", () => {
   download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: "image/svg+xml" }),
     (state.schema.title || state.project || "schema") + ".svg");
 });
+$("#btnCopyGrowth").addEventListener("click", async (e) => {
+  const btn = e.currentTarget, orig = btn.textContent;  // vor await erfassen (danach ist currentTarget null)
+  await copyText(growthTSV(calcIst()));
+  btn.textContent = "Kopiert ✓";
+  setTimeout(() => { btn.textContent = orig; }, 1400);
+});
 
 /* Export */
 $("#btnPrint").addEventListener("click", () => window.print());
@@ -1370,6 +1447,9 @@ function initFromState() {
   if (state.schema.storageControllers == null) state.schema.storageControllers = 2;
   if (state.schema.autoHosts == null) state.schema.autoHosts = false;  // bestehende Stände nicht überschreiben
   normalizeSchemaDevices(state.schema);  // Geräte in { name, product }-Form bringen (Abwärtskompat.)
+  (state.groups || []).forEach(g => { if (g.vdisk == null) g.vdisk = 0; });
+  // Alte Szenarien ohne Jahre: years=2 ⇒ ein Wachstumsschritt (≈ altes einmaliges Wachstum).
+  (state.scenarios || []).forEach(s => { if (s.years == null) s.years = 2; });
   $("#projectName").value = state.project || "";
   $("#htToggle").checked = !!state.ht;
   $("#priceWin").value = state.prices.win ?? "";
