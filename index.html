@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Datacenter Sizer – Virtualisierungs-Sizing</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;
+    --series-2: #1baf7a;
+    --series-3: #eda100;
+    --series-4: #008300;
+    --series-5: #4a3aa7;
+    --series-6: #e34948;
+    --ist-bar: #a5a49c;
+    --accent: #2a78d6;
+    --good: #006300;
+    --warn-bg: #fff7e6;
+    --input-bg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5;
+      --series-2: #199e70;
+      --series-3: #c98500;
+      --series-4: #008300;
+      --series-5: #9085e9;
+      --series-6: #e66767;
+      --ist-bar: #6b6a64;
+      --accent: #3987e5;
+      --good: #0ca30c;
+      --warn-bg: #33290f;
+      --input-bg: #232322;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  header {
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 12.5px; }
+  header .spacer { flex: 1; }
+  main { max-width: 1240px; margin: 0 auto; padding: 20px 24px 60px; }
+  section.card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+  }
+  h2 { font-size: 15px; margin: 0 0 4px; font-weight: 650; }
+  .hint { color: var(--text-secondary); font-size: 12.5px; margin: 0 0 12px; }
+  table.input-table { border-collapse: collapse; width: 100%; }
+  table.input-table th {
+    text-align: left; font-size: 11.5px; color: var(--muted);
+    font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--grid);
+    white-space: nowrap;
+  }
+  table.input-table td { padding: 3px 4px; }
+  input[type="text"], input[type="number"], select {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input.name-col { min-width: 130px; }
+  input.num-col { min-width: 64px; text-align: right; }
+  button {
+    font: inherit;
+    padding: 7px 14px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-weight: 550;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ghost-del {
+    border: none; background: none; color: var(--muted);
+    font-size: 16px; padding: 2px 8px;
+  }
+  button.ghost-del:hover { color: var(--series-6); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+  .kpi {
+    flex: 1 1 130px;
+    background: var(--page);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 130px;
+  }
+  .kpi .val { font-size: 22px; font-weight: 650; }
+  .kpi .lbl { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .toggle-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; flex-wrap: wrap; }
+  .switch { position: relative; display: inline-block; width: 40px; height: 22px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider-el {
+    position: absolute; inset: 0; cursor: pointer;
+    background: var(--baseline); border-radius: 22px; transition: .15s;
+  }
+  .slider-el:before {
+    content: ""; position: absolute; height: 16px; width: 16px;
+    left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s;
+  }
+  .switch input:checked + .slider-el { background: var(--accent); }
+  .switch input:checked + .slider-el:before { transform: translateX(18px); }
+  .scenario-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+  .scenario-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: var(--page);
+    border-top: 3px solid var(--series-1);
+  }
+  .scenario-card .sc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .scenario-card .sc-head input { font-weight: 650; }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; font-weight: 600; }
+  .slider-field { grid-column: 1 / -1; }
+  .slider-field .slider-line { display: flex; align-items: center; gap: 10px; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .ratio-val { font-weight: 650; min-width: 58px; text-align: right; font-variant-numeric: tabular-nums; }
+  .sc-results { margin-top: 12px; border-top: 1px solid var(--grid); padding-top: 10px; }
+  .sc-results .res-line { display: flex; justify-content: space-between; padding: 2.5px 0; font-size: 13px; }
+  .sc-results .res-line .k { color: var(--text-secondary); }
+  .sc-results .res-line .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .sc-results .res-line.big .v { font-size: 17px; }
+  .limited { font-size: 11px; color: var(--muted); }
+  table.result-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  table.result-table th, table.result-table td {
+    padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--grid);
+    font-size: 13px; white-space: nowrap;
+  }
+  table.result-table th { color: var(--text-secondary); font-size: 11.5px; font-weight: 650; }
+  .col-swatch {
+    display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+    margin-right: 6px; vertical-align: -1px;
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
+  .slider-tip {
+    position: fixed; z-index: 50; transform: translate(-50%, -130%);
+    background: var(--text-primary); color: var(--surface-1);
+    padding: 5px 10px; border-radius: 7px; font-size: 12px; font-weight: 600;
+    pointer-events: none; white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    font-variant-numeric: tabular-nums;
+    display: none;
+  }
+  .slider-tip .tip-sub { font-weight: 400; opacity: 0.75; }
+  .slider-tip::after {
+    content: ""; position: absolute; left: 50%; bottom: -5px;
+    transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: var(--text-primary); border-bottom: none;
+  }
+  table.result-table td:first-child, table.result-table th:first-child { text-align: left; }
+  table.result-table tr.section-row td {
+    font-weight: 650; font-size: 11.5px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding-top: 14px; border-bottom: 1px solid var(--baseline);
+  }
+  .scroll-x { overflow-x: auto; }
+  .charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin-top: 14px; }
+  .chart-box h3 { font-size: 13px; margin: 0 0 2px; font-weight: 650; }
+  .chart-box .chart-sub { font-size: 11.5px; color: var(--muted); margin: 0 0 6px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-top: 4px; flex-wrap: wrap; }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  details.info { margin-top: 12px; font-size: 12.5px; color: var(--text-secondary); }
+  details.info summary { cursor: pointer; font-weight: 600; color: var(--text-primary); font-size: 12.5px; }
+  details.info table { border-collapse: collapse; margin-top: 8px; }
+  details.info th, details.info td { padding: 3px 12px 3px 0; text-align: left; font-size: 12.5px; }
+  details.info th { color: var(--muted); font-weight: 600; }
+  .price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 16px; margin-top: 8px; }
+  .disclaimer { font-size: 11.5px; color: var(--muted); margin-top: 10px; }
+  dialog {
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface-1); color: var(--text-primary);
+    max-width: 640px; width: 90%; padding: 20px;
+  }
+  dialog::backdrop { background: rgba(0,0,0,0.4); }
+  dialog textarea {
+    width: 100%; height: 180px; font-family: ui-monospace, monospace; font-size: 12px;
+    background: var(--input-bg); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+  }
+  .badge-warn {
+    background: var(--warn-bg); border-radius: 6px; padding: 2px 8px;
+    font-size: 11.5px; color: var(--text-secondary);
+  }
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #fff; color: #000; font-size: 12px; }
+    :root { --surface-1: #fff; --page: #fff; --text-primary: #000; --text-secondary: #333; }
+    section.card { border: none; padding: 6px 0; page-break-inside: avoid; }
+    main { padding: 0; max-width: none; }
+    header { border-bottom: 2px solid #000; padding: 6px 0; }
+    .charts-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Datacenter Sizer</h1>
+    <div class="sub">Virtualisierungs-Sizing · vCPU:pCore · RAM · Lizenzen</div>
+  </div>
+  <div class="spacer"></div>
+  <div style="min-width:220px">
+    <label style="font-size:11px;color:var(--muted);font-weight:600">Projekt / Kunde</label>
+    <input type="text" id="projectName" placeholder="z. B. Kunde XY – Refresh 2026">
+  </div>
+  <div class="toolbar no-print" style="margin-top:0">
+    <button id="btnPrint" class="primary">PDF / Drucken</button>
+    <button id="btnCsv">CSV-Export</button>
+    <button id="btnSave">Speichern (JSON)</button>
+    <button id="btnLoad">Laden</button>
+    <input type="file" id="fileLoad" accept=".json" style="display:none">
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ IST-Umgebung ============ -->
+  <section class="card">
+    <h2>IST-Umgebung</h2>
+    <p class="hint">Serverbestand als Gruppen gleicher Hosts erfassen (z. B. pro Cluster). vCPU und vRAM = insgesamt provisionierte Werte je Gruppe.</p>
+    <div class="scroll-x">
+      <table class="input-table" id="groupTable">
+        <thead>
+          <tr>
+            <th>Bezeichnung</th>
+            <th>Server</th>
+            <th>Sockel je Server</th>
+            <th>Cores je Sockel</th>
+            <th>RAM je Server (GB)</th>
+            <th>CPU-Gen-Faktor</th>
+            <th>Prov. vCPU (gesamt)</th>
+            <th>Prov. vRAM (GB gesamt)</th>
+            <th class="no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="groupBody"></tbody>
+      </table>
+    </div>
+    <div class="toolbar no-print">
+      <button id="btnAddGroup">+ Gruppe hinzufügen</button>
+      <button id="btnPaste">Aus Excel einfügen…</button>
+    </div>
+
+    <div class="toggle-row">
+      <label class="switch">
+        <input type="checkbox" id="htToggle">
+        <span class="slider-el"></span>
+      </label>
+      <div>
+        <strong>Hyperthreading einbeziehen</strong>
+        <span class="hint" style="display:inline;margin:0"> – Ratio wird gegen logische Threads (Cores × 2) statt physische Cores gerechnet. Empfehlung: aus.</span>
+      </div>
+    </div>
+
+    <details class="info">
+      <summary>CPU-Generationen-Faktor – Richtwerte</summary>
+      <p>Relativer Leistungsfaktor pro Core (Basis: Intel Ice Lake ≈ 1,0), abgeleitet aus typischen SPECrate2017_int-Werten pro Core. Für belastbare Sizings die konkreten SPEC-Werte der CPU-Modelle verwenden.</p>
+      <table>
+        <tr><th>Generation</th><th>Faktor (ca.)</th></tr>
+        <tr><td>Intel Xeon E5 v3/v4 (Haswell/Broadwell, 2014–16)</td><td>0,60 – 0,70</td></tr>
+        <tr><td>Intel Xeon Scalable Gen 1/2 (Skylake/Cascade Lake)</td><td>0,75 – 0,85</td></tr>
+        <tr><td>Intel Xeon Scalable Gen 3 (Ice Lake, 2021)</td><td>1,00</td></tr>
+        <tr><td>Intel Xeon Scalable Gen 4 (Sapphire Rapids, 2023)</td><td>1,10 – 1,20</td></tr>
+        <tr><td>Intel Xeon Gen 5/6 (Emerald/Granite Rapids)</td><td>1,25 – 1,45</td></tr>
+        <tr><td>AMD EPYC Rome/Milan (2019–21)</td><td>0,90 – 1,05</td></tr>
+        <tr><td>AMD EPYC Genoa/Turin (2022–24)</td><td>1,20 – 1,45</td></tr>
+      </table>
+    </details>
+
+    <div class="kpi-row" id="istKpis"></div>
+  </section>
+
+  <!-- ============ Szenarien ============ -->
+  <section class="card">
+    <h2>Planungs-Szenarien</h2>
+    <p class="hint">Ziel-Hardware und Planungswerte je Szenario. Die benötigte Hostanzahl ergibt sich aus dem Maximum von CPU- und RAM-Bedarf, plus Reserve.</p>
+    <div class="scenario-grid" id="scenarioGrid"></div>
+    <div class="toolbar no-print">
+      <button id="btnAddScenario">+ Szenario hinzufügen</button>
+    </div>
+  </section>
+
+  <!-- ============ Lizenzpreise ============ -->
+  <section class="card no-print">
+    <h2>Lizenzpreise (optional)</h2>
+    <p class="hint">Preise eintragen, um Kosten zu berechnen. Ohne Preise werden nur die Lizenzmengen ausgewiesen. VMware und HPE VM Essentials sind alternative Hypervisoren, Windows Datacenter kommt ggf. additiv dazu.</p>
+    <div class="price-grid">
+      <div class="field">
+        <label>Windows Server Datacenter – € pro Core (einmalig)</label>
+        <input type="number" id="priceWin" min="0" step="1" placeholder="z. B. 385">
+      </div>
+      <div class="field">
+        <label>VMware (VVF/VCF) – € pro Core und Jahr</label>
+        <input type="number" id="priceVmw" min="0" step="1" placeholder="z. B. 135">
+      </div>
+      <div class="field">
+        <label>HPE VM Essentials – € pro Sockel und Jahr</label>
+        <input type="number" id="priceHpe" min="0" step="1" placeholder="z. B. 800">
+      </div>
+    </div>
+    <p class="disclaimer">Lizenzregeln: Windows Server Datacenter pro physischem Core, min. 16 Cores je Host und min. 8 je Sockel. VMware (Broadcom) Subskription pro Core, min. 16 Cores je Sockel. HPE VM Essentials Subskription pro Sockel. Stand der Regeln bitte vor Angebotsabgabe prüfen.</p>
+  </section>
+
+  <!-- ============ Ergebnis ============ -->
+  <section class="card" id="reportSection">
+    <h2>Ergebnisübersicht</h2>
+    <p class="hint" id="reportMeta"></p>
+    <div class="scroll-x">
+      <table class="result-table" id="resultTable"></table>
+    </div>
+    <div class="charts-row" id="chartsRow"></div>
+  </section>
+
+  <!-- ============ Infrastruktur-Schema ============ -->
+  <section class="card" id="schemaSection">
+    <h2>Infrastruktur-Schema</h2>
+    <p class="hint">Physische Zwei-Standort-Sicht. Geräte je Schicht eingeben, Kopplungen konfigurieren. Die Vermaschung wird automatisch gezeichnet. Storage-Systeme mit Dual-Controller erhalten die entsprechende Anzahl redundanter Pfade (zum Switch bzw. bei Direct-Attached direkt zu den Hosts).</p>
+    <div class="no-print" style="display:grid;grid-template-columns:1fr;gap:14px">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="max-width:300px">
+          <label>Topologie</label>
+          <select id="schemaTopology">
+            <option value="san">Vermascht (SAN / Netzwerk)</option>
+            <option value="das">Direct-Attached (Server ↔ Storage)</option>
+          </select>
+        </div>
+        <div class="field" style="max-width:200px">
+          <label>Controller je Storage (Pfade)</label>
+          <input type="number" id="schemaStorageCtrl" min="1" max="4" step="1" value="2">
+        </div>
+        <div class="field" style="max-width:360px;flex:1">
+          <label>Titel des Schemas</label>
+          <input type="text" id="schemaTitle" placeholder="z. B. HPE / VMware Architektur">
+        </div>
+      </div>
+      <div class="toggle-row" style="margin:0">
+        <label class="switch">
+          <input type="checkbox" id="schemaAutoHosts">
+          <span class="slider-el"></span>
+        </label>
+        <div>
+          <strong>Host-Anzahl automatisch aus Sizing (Szenario A)</strong>
+          <span class="hint" style="display:inline;margin:0"> – übernimmt die berechnete Hostzahl als Startvorschlag. Sobald du die Compute-Geräte manuell änderst, bleibt deine Eingabe erhalten.</span>
+        </div>
+      </div>
+      <div class="scenario-grid" id="schemaSites"></div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);font-weight:600">Standort-Kopplungen (Bezeichnung · Schicht · Linienführung · Farbe)</label>
+        <div id="schemaCouplings" style="margin-top:6px"></div>
+      </div>
+      <div class="toolbar" style="margin-top:0">
+        <button id="btnAddSite">+ Standort</button>
+        <button id="btnSchemaFromScenario">Compute aus Szenario A übernehmen</button>
+        <button id="btnSchemaSvg">SVG exportieren</button>
+      </div>
+    </div>
+    <div id="schemaCanvas" style="margin-top:14px;overflow-x:auto"></div>
+  </section>
+
+</main>
+
+<dialog id="pasteDialog">
+  <h2 style="margin-top:0">Aus Excel einfügen</h2>
+  <p class="hint">Zeilen aus Excel kopieren und hier einfügen. Spaltenreihenfolge:<br>
+  <code>Bezeichnung · Server · Sockel · Cores/Sockel · RAM(GB) · Gen-Faktor · vCPU · vRAM(GB)</code><br>
+  Der Gen-Faktor darf fehlen (dann 1,0). Bestehende Gruppen werden ersetzt.</p>
+  <textarea id="pasteArea" placeholder="Cluster-Prod	12	2	16	512	0,8	960	4800"></textarea>
+  <div class="toolbar" style="justify-content:flex-end">
+    <button id="pasteCancel">Abbrechen</button>
+    <button id="pasteOk" class="primary">Übernehmen</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+
+/* ---------- State ---------- */
+const SCENARIO_COLORS = ["--series-1", "--series-2", "--series-3", "--series-5", "--series-6", "--series-4"];
+
+/* Topologie-Vorlagen: bestimmen Layer, Vermaschung und Standort-Kopplungen.
+   san = klassisch über Netzwerk/SAN vermascht · das = Server direkt an Storage.
+   Muss vor dem State stehen, da defaultSchema() bereits in der State-Initialisierung läuft. */
+const SCHEMA_TEMPLATES = {
+  san: {
+    label: "Vermascht (SAN / Netzwerk)",
+    layers: [
+      { id: "compute", label: "Compute", position: "aussen", color: "--series-1" },
+      { id: "network", label: "Network", position: "spange", color: "--series-2" },
+      { id: "storage", label: "Storage", position: "unten",  color: "--series-6" },
+    ],
+    mesh: [
+      { from: "compute", to: "network" },
+      { from: "storage", to: "network" },
+    ],
+    couplings: [
+      { pair: "network", label: "DCI / vMotion / Cluster", color: "#2a78d6", routing: "direkt" },
+      { pair: "storage", label: "Replikation", color: "#e34948", routing: "unten" },
+    ],
+  },
+  das: {
+    label: "Direct-Attached (Server ↔ Storage)",
+    layers: [
+      { id: "compute", label: "Compute", position: "aussen", color: "--series-1" },
+      { id: "storage", label: "Storage", position: "spange", color: "--series-6" },
+    ],
+    mesh: [
+      { from: "compute", to: "storage" },
+    ],
+    couplings: [
+      { pair: "storage", label: "Storage-Replikation", color: "#e34948", routing: "direkt" },
+      { pair: "compute", label: "LAN / vMotion / Cluster", color: "#2a78d6", routing: "unten" },
+    ],
+  },
+};
+
+let state = {
+  project: "",
+  ht: false,
+  groups: [
+    { name: "Cluster Prod", n: 8, sockets: 2, cores: 16, ram: 512, factor: 0.8, vcpu: 820, vram: 3400 },
+    { name: "Cluster Test/Dev", n: 4, sockets: 2, cores: 12, ram: 384, factor: 0.8, vcpu: 380, vram: 1200 },
+  ],
+  scenarios: [
+    { name: "Szenario A", sockets: 2, cores: 32, ram: 1024, factor: 1.3, ratio: 4, growth: 15, ramUtil: 85, reserve: 1 },
+    { name: "Szenario B", sockets: 1, cores: 64, ram: 1536, factor: 1.4, ratio: 3, growth: 15, ramUtil: 85, reserve: 1 },
+  ],
+  prices: { win: null, vmw: null, hpe: null },
+  schema: defaultSchema(),
+};
+
+/* ---------- Helpers ---------- */
+const $ = (sel) => document.querySelector(sel);
+const nf0 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
+const nf1 = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nfEur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+
+function num(v) {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  let s = String(v).trim();
+  if (!s) return 0;
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");        // 1.024,5 → 1024.5
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");       // 1.024 → 1024
+  const r = parseFloat(s);
+  return isFinite(r) ? r : 0;
+}
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+/* ---------- Berechnung ---------- */
+function htFactor() { return state.ht ? 2 : 1; }
+
+function calcIst() {
+  let servers = 0, sockets = 0, pcores = 0, perfCores = 0, ram = 0, vcpu = 0, vram = 0, vcpuWeighted = 0;
+  for (const g of state.groups) {
+    const gc = g.n * g.sockets * g.cores;
+    servers += g.n;
+    sockets += g.n * g.sockets;
+    pcores += gc;
+    perfCores += gc * (g.factor || 1);
+    ram += g.n * g.ram;
+    vcpu += g.vcpu;
+    vram += g.vram;
+    vcpuWeighted += g.vcpu * (g.factor || 1);
+  }
+  const base = pcores * htFactor();
+  return {
+    servers, sockets, pcores, perfCores, ram, vcpu, vram, vcpuWeighted,
+    ratio: base > 0 ? vcpu / base : 0,
+    ramUtil: ram > 0 ? vram / ram : 0,
+    lic: calcIstLicenses(),
+  };
+}
+
+function licPerHost(sockets, cores) {
+  return {
+    win: Math.max(16, sockets * Math.max(8, cores)),
+    vmw: sockets * Math.max(16, cores),
+    hpe: sockets,
+  };
+}
+
+function calcIstLicenses() {
+  let win = 0, vmw = 0, hpe = 0;
+  for (const g of state.groups) {
+    const l = licPerHost(g.sockets, g.cores);
+    win += g.n * l.win;
+    vmw += g.n * l.vmw;
+    hpe += g.n * l.hpe;
+  }
+  return { win, vmw, hpe };
+}
+
+function calcScenario(sc, ist) {
+  const growth = 1 + sc.growth / 100;
+  const vcpuPlan = ist.vcpu * growth;
+  const vramPlan = ist.vram * growth;
+  const hostBase = sc.sockets * sc.cores * htFactor();          // Kapazitätseinheiten je Host
+  const demandUnits = ist.vcpuWeighted * growth / (sc.ratio * (sc.factor || 1)); // benötigte Basis-Cores neu
+  const hostsCpu = hostBase > 0 ? Math.ceil(demandUnits / hostBase) : 0;
+  const ramCap = sc.ram * (sc.ramUtil / 100);
+  const hostsRam = ramCap > 0 ? Math.ceil(vramPlan / ramCap) : 0;
+  const hostsNet = Math.max(hostsCpu, hostsRam, 1);
+  const hosts = hostsNet + (sc.reserve || 0);
+  const totCores = hosts * sc.sockets * sc.cores;
+  const totRam = hosts * sc.ram;
+  const l = licPerHost(sc.sockets, sc.cores);
+  return {
+    vcpuPlan, vramPlan, hostsCpu, hostsRam, hostsNet, hosts,
+    totCores, totRam,
+    sockets: hosts * sc.sockets,
+    ratio: totCores > 0 ? vcpuPlan / (totCores * htFactor()) : 0,
+    ramUtil: totRam > 0 ? vramPlan / totRam : 0,
+    limiter: hostsCpu >= hostsRam ? "CPU" : "RAM",
+    lic: { win: hosts * l.win, vmw: hosts * l.vmw, hpe: hosts * l.hpe },
+  };
+}
+
+/* ---------- Rendering: IST-Tabelle ---------- */
+const GROUP_COLS = [
+  ["name", "text", "name-col"], ["n", "number", "num-col"], ["sockets", "number", "num-col"],
+  ["cores", "number", "num-col"], ["ram", "number", "num-col"], ["factor", "number", "num-col"],
+  ["vcpu", "number", "num-col"], ["vram", "number", "num-col"],
+];
+
+function renderGroups() {
+  const tb = $("#groupBody");
+  tb.innerHTML = state.groups.map((g, i) => `
+    <tr data-idx="${i}">
+      ${GROUP_COLS.map(([key, type, cls]) => `
+        <td><input type="${type}" class="${cls}" data-key="${key}" ${type === "number" ? 'step="any" min="0"' : ""}
+             value="${type === "text" ? esc(g[key]) : g[key]}"></td>`).join("")}
+      <td class="no-print"><button class="ghost-del" data-del="${i}" title="Gruppe entfernen">✕</button></td>
+    </tr>`).join("");
+}
+
+/* ---------- Rendering: Szenarien ---------- */
+function renderScenarios() {
+  const grid = $("#scenarioGrid");
+  grid.innerHTML = state.scenarios.map((sc, i) => {
+    const col = cssVar(SCENARIO_COLORS[i % SCENARIO_COLORS.length]);
+    return `
+    <div class="scenario-card" data-idx="${i}" style="border-top-color:${col}">
+      <div class="sc-head">
+        <input type="text" data-key="name" value="${esc(sc.name)}">
+        <button class="ghost-del no-print" data-delsc="${i}" title="Szenario entfernen">✕</button>
+      </div>
+      <div class="field-grid">
+        <div class="field"><label>Sockel je Host</label><input type="number" data-key="sockets" min="1" step="1" value="${sc.sockets}"></div>
+        <div class="field"><label>Cores je Sockel</label><input type="number" data-key="cores" min="1" step="1" value="${sc.cores}"></div>
+        <div class="field"><label>RAM je Host (GB)</label><input type="number" data-key="ram" min="1" step="any" value="${sc.ram}"></div>
+        <div class="field"><label>CPU-Gen-Faktor (neu)</label><input type="number" data-key="factor" min="0.1" step="0.05" value="${sc.factor}"></div>
+        <div class="field slider-field">
+          <label>Ziel-Überprovisionierung vCPU : pCore</label>
+          <div class="slider-line">
+            <input type="range" data-key="ratio" min="1" max="10" step="0.5" value="${sc.ratio}">
+            <span class="ratio-val" data-out="ratio">${nf1.format(sc.ratio)} : 1</span>
+          </div>
+        </div>
+        <div class="field"><label>Wachstum (%)</label><input type="number" data-key="growth" step="1" value="${sc.growth}"></div>
+        <div class="field"><label>Max. RAM-Auslastung (%)</label><input type="number" data-key="ramUtil" min="1" max="100" step="1" value="${sc.ramUtil}"></div>
+        <div class="field"><label>Reserve-Hosts (N+x)</label><input type="number" data-key="reserve" min="0" step="1" value="${sc.reserve}"></div>
+      </div>
+      <div class="sc-results" data-results></div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- Rendering: Ergebnisse ---------- */
+function fmtRatio(r) { return nf1.format(r) + " : 1"; }
+function fmtPct(x) { return nf0.format(x * 100) + " %"; }
+
+function recalc() {
+  const ist = calcIst();
+  const results = state.scenarios.map(sc => calcScenario(sc, ist));
+
+  // IST-KPIs
+  $("#istKpis").innerHTML = [
+    [nf0.format(ist.servers), "Server"],
+    [nf0.format(ist.pcores), "physische Cores"],
+    [nf0.format(ist.vcpu), "prov. vCPU"],
+    [fmtRatio(ist.ratio), state.ht ? "vCPU : Thread" : "vCPU : pCore"],
+    [nf0.format(ist.ram) + " GB", "RAM gesamt"],
+    [fmtPct(ist.ramUtil), "vRAM-Provisionierung"],
+  ].map(([v, l]) => `<div class="kpi"><div class="val">${v}</div><div class="lbl">${l}</div></div>`).join("");
+
+  // Szenario-Ergebnisse in den Karten
+  document.querySelectorAll(".scenario-card").forEach((card) => {
+    const i = +card.dataset.idx;
+    const r = results[i];
+    if (!r) return;
+    card.querySelector("[data-results]").innerHTML = `
+      <div class="res-line big"><span class="k">Benötigte Hosts (inkl. Reserve)</span><span class="v">${nf0.format(r.hosts)}</span></div>
+      <div class="res-line"><span class="k">davon CPU-bedingt / RAM-bedingt</span><span class="v">${nf0.format(r.hostsCpu)} / ${nf0.format(r.hostsRam)} <span class="limited">(${r.limiter}-limitiert)</span></span></div>
+      <div class="res-line"><span class="k">vCPU geplant (inkl. Wachstum)</span><span class="v">${nf0.format(r.vcpuPlan)}</span></div>
+      <div class="res-line"><span class="k">Effektive Ratio (alle Hosts)</span><span class="v">${fmtRatio(r.ratio)}</span></div>
+      <div class="res-line"><span class="k">RAM-Auslastung (alle Hosts)</span><span class="v">${fmtPct(r.ramUtil)}</span></div>`;
+  });
+
+  renderResultTable(ist, results);
+  renderCharts(ist, results);
+
+  $("#reportMeta").textContent =
+    (state.project ? state.project + " · " : "") +
+    "Stand: " + new Date().toLocaleDateString("de-DE") +
+    " · Hyperthreading " + (state.ht ? "einbezogen (Cores × 2)" : "nicht einbezogen") +
+    " · Leistung normiert über CPU-Gen-Faktor";
+
+  // Host-Anzahl des Schemas dem Sizing folgen lassen (solange autoHosts aktiv).
+  if (syncSchemaHosts()) { renderSchemaMask(); drawSchema(); }
+
+  saveLocal();
+}
+
+function priceVal(id) { const v = num($(id).value); return v > 0 ? v : 0; }
+
+function renderResultTable(ist, results) {
+  const pWin = priceVal("#priceWin"), pVmw = priceVal("#priceVmw"), pHpe = priceVal("#priceHpe");
+  const cols = [
+    { name: "IST", color: cssVar("--ist-bar") },
+    ...state.scenarios.map((s, i) => ({ name: s.name, color: cssVar(SCENARIO_COLORS[i % SCENARIO_COLORS.length]) })),
+  ];
+  const head = `<tr><th></th>${cols.map(c =>
+    `<th><span class="col-swatch" style="background:${c.color}"></span>${esc(c.name)}</th>`).join("")}</tr>`;
+
+  const rows = [];
+  const row = (label, istVal, fn) =>
+    rows.push(`<tr><td>${label}</td><td>${istVal}</td>${results.map(fn).map(v => `<td>${v}</td>`).join("")}</tr>`);
+  const section = (label) =>
+    rows.push(`<tr class="section-row"><td colspan="${cols.length + 1}">${label}</td></tr>`);
+
+  section("Hardware");
+  row("Hosts", nf0.format(ist.servers), r => nf0.format(r.hosts));
+  row("Sockel gesamt", nf0.format(ist.sockets), r => nf0.format(r.sockets));
+  row("Physische Cores gesamt", nf0.format(ist.pcores), r => nf0.format(r.totCores));
+  row("RAM gesamt (GB)", nf0.format(ist.ram), r => nf0.format(r.totRam));
+
+  section("Auslastung");
+  row("vCPU (geplant)", nf0.format(ist.vcpu), r => nf0.format(r.vcpuPlan));
+  row(state.ht ? "Ratio vCPU : Thread" : "Ratio vCPU : pCore", fmtRatio(ist.ratio), r => fmtRatio(r.ratio));
+  row("RAM-Auslastung", fmtPct(ist.ramUtil), r => fmtPct(r.ramUtil));
+
+  section("Lizenzmengen");
+  row("Windows DC – lizenzierte Cores", nf0.format(ist.lic.win), r => nf0.format(r.lic.win));
+  row("VMware – lizenzierte Cores", nf0.format(ist.lic.vmw), r => nf0.format(r.lic.vmw));
+  row("HPE VM Essentials – Sockel", nf0.format(ist.lic.hpe), r => nf0.format(r.lic.hpe));
+
+  if (pWin || pVmw || pHpe) {
+    section("Lizenzkosten");
+    if (pWin) row("Windows DC (einmalig)", nfEur.format(ist.lic.win * pWin), r => nfEur.format(r.lic.win * pWin));
+    if (pVmw) row("VMware (p. a.)", nfEur.format(ist.lic.vmw * pVmw), r => nfEur.format(r.lic.vmw * pVmw));
+    if (pHpe) row("HPE VM Essentials (p. a.)", nfEur.format(ist.lic.hpe * pHpe), r => nfEur.format(r.lic.hpe * pHpe));
+  }
+
+  $("#resultTable").innerHTML = head + rows.join("");
+}
+
+/* ---------- Charts (SVG-Balken) ---------- */
+function barChart({ title, sub, labels, series, fmt }) {
+  // series: [{name, color, values}] — bei einer Serie kein Legendenkasten
+  const W = 520, H = 240, padL = 8, padR = 8, padT = 26, padB = 26;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const maxVal = Math.max(1, ...series.flatMap(s => s.values));
+  const nCat = labels.length, nSer = series.length;
+  const catW = innerW / nCat;
+  const barW = Math.min(48, (catW - 14) / nSer - 2);
+  const groupW = nSer * barW + (nSer - 1) * 2;
+
+  let bars = "", labelsSvg = "", gridSvg = "";
+  const ticks = 4;
+  for (let t = 1; t <= ticks; t++) {
+    const y = padT + innerH - (innerH * t) / ticks;
+    gridSvg += `<line x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+  }
+  labels.forEach((lab, ci) => {
+    const gx = padL + ci * catW + (catW - groupW) / 2;
+    series.forEach((s, si) => {
+      const v = s.values[ci];
+      const h = Math.max(0, (v / maxVal) * innerH);
+      const x = gx + si * (barW + 2);
+      const y = padT + innerH - h;
+      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="4" fill="${s.color}">
+                 <title>${esc(lab)} – ${esc(s.name)}: ${fmt(v)}</title></rect>
+               <rect x="${x}" y="${padT + innerH - 2}" width="${barW}" height="2" fill="${s.color}"/>`;
+      bars += `<text x="${x + barW / 2}" y="${y - 5}" text-anchor="middle" font-size="10.5" fill="var(--text-secondary)">${fmt(v)}</text>`;
+    });
+    labelsSvg += `<text x="${padL + ci * catW + catW / 2}" y="${H - 8}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(lab)}</text>`;
+  });
+
+  const legend = nSer > 1
+    ? `<div class="legend">${series.map(s => `<span><span class="swatch" style="background:${s.color}"></span>${esc(s.name)}</span>`).join("")}</div>`
+    : "";
+
+  return `<div class="chart-box">
+    <h3>${esc(title)}</h3>
+    <p class="chart-sub">${esc(sub)}</p>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="${esc(title)}">
+      ${gridSvg}
+      <line x1="${padL}" x2="${W - padR}" y1="${padT + innerH}" y2="${padT + innerH}" stroke="var(--baseline)" stroke-width="1"/>
+      ${bars}${labelsSvg}
+    </svg>${legend}</div>`;
+}
+
+function renderCharts(ist, results) {
+  const labels = ["IST", ...state.scenarios.map(s => s.name)];
+  const istColor = cssVar("--ist-bar");
+  const colorFor = (i) => i === 0 ? istColor : cssVar(SCENARIO_COLORS[(i - 1) % SCENARIO_COLORS.length]);
+  const hostsVals = [ist.servers, ...results.map(r => r.hosts)];
+  const coreVals = [ist.pcores, ...results.map(r => r.totCores)];
+
+  let html = chartSingleColored("Hosts", "Anzahl Server IST vs. geplant (inkl. Reserve)", labels, hostsVals, colorFor, v => nf0.format(v));
+  html += chartSingleColored("Physische Cores", "Cores gesamt IST vs. geplant", labels, coreVals, colorFor, v => nf0.format(v));
+
+  const pVmw = priceVal("#priceVmw"), pHpe = priceVal("#priceHpe");
+  if (pVmw > 0 && pHpe > 0) {
+    html += barChart({
+      title: "Hypervisor-Lizenzkosten pro Jahr",
+      sub: "VMware (pro Core) vs. HPE VM Essentials (pro Sockel) – alternative Optionen",
+      labels,
+      series: [
+        { name: "VMware", color: cssVar("--series-1"), values: [ist.lic.vmw * pVmw, ...results.map(r => r.lic.vmw * pVmw)] },
+        { name: "HPE VM Essentials", color: cssVar("--series-2"), values: [ist.lic.hpe * pHpe, ...results.map(r => r.lic.hpe * pHpe)] },
+      ],
+      fmt: v => nf0.format(Math.round(v / 1000)) + " T€",
+    });
+  } else {
+    html += chartSingleColored("VMware – lizenzierte Cores", "Pro Core, min. 16 je Sockel", labels,
+      [ist.lic.vmw, ...results.map(r => r.lic.vmw)], colorFor, v => nf0.format(v));
+  }
+
+  $("#chartsRow").innerHTML = html;
+}
+
+function chartSingleColored(title, sub, labels, values, colorFor, fmt) {
+  const W = 520, H = 240, padL = 8, padR = 8, padT = 26, padB = 26;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const maxVal = Math.max(1, ...values);
+  const catW = innerW / labels.length;
+  const barW = Math.min(56, catW - 24);
+  let bars = "", labelsSvg = "", gridSvg = "";
+  for (let t = 1; t <= 4; t++) {
+    const y = padT + innerH - (innerH * t) / 4;
+    gridSvg += `<line x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+  }
+  labels.forEach((lab, i) => {
+    const v = values[i];
+    const h = Math.max(0, (v / maxVal) * innerH);
+    const x = padL + i * catW + (catW - barW) / 2;
+    const y = padT + innerH - h;
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="4" fill="${colorFor(i)}">
+               <title>${esc(lab)}: ${fmt(v)}</title></rect>
+             <text x="${x + barW / 2}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--text-secondary)">${fmt(v)}</text>`;
+    labelsSvg += `<text x="${padL + i * catW + catW / 2}" y="${H - 8}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(lab)}</text>`;
+  });
+  return `<div class="chart-box">
+    <h3>${esc(title)}</h3>
+    <p class="chart-sub">${esc(sub)}</p>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="${esc(title)}">
+      ${gridSvg}
+      <line x1="${padL}" x2="${W - padR}" y1="${padT + innerH}" y2="${padT + innerH}" stroke="var(--baseline)" stroke-width="1"/>
+      ${bars}${labelsSvg}
+    </svg></div>`;
+}
+
+/* ---------- Infrastruktur-Schema ---------- */
+function defaultDevices(lid) {
+  if (lid === "compute") return ["Host 1", "Host 2", "Host 3"];
+  if (lid === "network") return ["Switch A", "Switch B"];
+  if (lid === "storage") return ["Storage"];
+  return ["Gerät 1"];
+}
+
+function defaultSite(name, tplKey) {
+  const t = SCHEMA_TEMPLATES[tplKey] || SCHEMA_TEMPLATES.san;
+  const devices = {};
+  t.layers.forEach(l => { devices[l.id] = defaultDevices(l.id); });
+  return { name, devices };
+}
+
+function defaultSchema() {
+  const t = SCHEMA_TEMPLATES.san;
+  return {
+    title: "",
+    topology: "san",
+    storageControllers: 2,
+    autoHosts: true,
+    layers: t.layers.map(l => ({ ...l })),
+    mesh: t.mesh.map(m => ({ ...m })),
+    sites: [defaultSite("Standort A", "san"), defaultSite("Standort B", "san")],
+    couplings: t.couplings.map(c => ({ ...c })),
+  };
+}
+
+/* Übernimmt die im Sizing berechnete Hostzahl (Szenario A) als Compute-Geräte,
+   solange autoHosts aktiv ist. Gibt true zurück, wenn sich etwas geändert hat. */
+function syncSchemaHosts() {
+  const s = state.schema;
+  if (!s || !s.autoHosts || !state.scenarios.length) return false;
+  const r = calcScenario(state.scenarios[0], calcIst());
+  const names = Array.from({ length: Math.max(1, r.hosts) }, (_, i) => "Host " + (i + 1));
+  let changed = false;
+  s.sites.slice(0, 2).forEach(site => {
+    if (!site.devices) site.devices = {};
+    const cur = site.devices.compute || [];
+    if (cur.length !== names.length || cur.some((v, i) => v !== names[i])) {
+      site.devices.compute = names.slice();
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+/* Topologie umschalten: Layer/Mesh/Kopplungen aus der Vorlage übernehmen,
+   Gerätenamen je erhaltenem Layer beibehalten, neue Layer mit Defaults füllen. */
+function applyTopology(key) {
+  const t = SCHEMA_TEMPLATES[key];
+  if (!t) return;
+  const s = state.schema;
+  s.topology = key;
+  s.layers = t.layers.map(l => ({ ...l }));
+  s.mesh = t.mesh.map(m => ({ ...m }));
+  s.couplings = t.couplings.map(c => ({ ...c }));
+  s.sites.forEach(site => {
+    const dev = {};
+    t.layers.forEach(l => {
+      const prev = site.devices && site.devices[l.id];
+      dev[l.id] = (prev && prev.length) ? prev : defaultDevices(l.id);
+    });
+    site.devices = dev;
+  });
+  syncSchemaHosts();
+  renderSchemaMask();
+  drawSchema();
+  saveLocal();
+}
+
+const SCHEMA_BW = 118, SCHEMA_BH = 38, SCHEMA_ROWH = 50, SCHEMA_VGAP = 12;
+const SCHEMA_DW = 880, SCHEMA_PAD = 16, SCHEMA_HEADER = 34, SCHEMA_MARGIN = 10, SCHEMA_GAPC = 40;
+
+function schemaLayerById(schema, id) { return schema.layers.find(l => l.id === id); }
+function schemaDevices(site, id) { return (site.devices && site.devices[id]) || []; }
+function schemaColorHex(c) { return (c && c.startsWith("--")) ? cssVar(c) : (c || "#888888"); }
+
+function layoutSchema(schema) {
+  const sites = schema.sites.slice(0, 2);
+  const byPos = p => schema.layers.filter(l => l.position === p);
+  const aussen = byPos("aussen"), spange = byPos("spange"), unten = byPos("unten");
+  const cnt = (site, ls) => ls.reduce((s, l) => s + schemaDevices(site, l.id).length, 0);
+  const GAP_AU = 26;
+  const topOffset = schema.title ? 30 : 0;
+  const top = SCHEMA_MARGIN + topOffset;
+
+  let contentH = 120;
+  sites.forEach(site => {
+    const a = cnt(site, aussen), u = cnt(site, unten), sp = cnt(site, spange);
+    const outerH = a * SCHEMA_ROWH + (a && u ? GAP_AU : 0) + u * SCHEMA_ROWH;
+    contentH = Math.max(contentH, outerH, sp * SCHEMA_ROWH);
+  });
+  const containerH = contentH + SCHEMA_HEADER + SCHEMA_PAD * 2;
+  const nSites = Math.min(sites.length, 2);
+  const containerW = nSites === 2
+    ? (SCHEMA_DW - 2 * SCHEMA_MARGIN - SCHEMA_GAPC) / 2
+    : Math.min(460, SCHEMA_DW - 2 * SCHEMA_MARGIN);
+  const totalW = nSites === 2 ? SCHEMA_DW : containerW + 2 * SCHEMA_MARGIN;
+
+  const placed = [], containers = [];
+  const colorOf = id => (schemaLayerById(schema, id) || {}).color || "--text-secondary";
+
+  sites.forEach((site, si) => {
+    const mirror = nSites === 2 && si === 1;
+    const cx0 = SCHEMA_MARGIN + si * (containerW + SCHEMA_GAPC);
+    containers.push({ x: cx0, y: top, w: containerW, h: containerH, name: site.name, mirror });
+    const outerLeft = mirror ? cx0 + containerW - 20 - SCHEMA_BW : cx0 + 20;
+    const spangeLeft = mirror ? cx0 + 20 : cx0 + containerW - 20 - SCHEMA_BW;
+
+    const put = (layerId, left, startY) => {
+      schemaDevices(site, layerId).forEach((name, idx) => {
+        placed.push({ si, layerId, idx, name, x: left, y: startY + idx * SCHEMA_ROWH, w: SCHEMA_BW, h: SCHEMA_BH, color: colorOf(layerId) });
+      });
+      return startY + schemaDevices(site, layerId).length * SCHEMA_ROWH;
+    };
+
+    let y = top + SCHEMA_HEADER + SCHEMA_PAD;
+    aussen.forEach(l => { y = put(l.id, outerLeft, y); });
+
+    const uCount = cnt(site, unten);
+    if (uCount) {
+      let uy = top + containerH - SCHEMA_PAD - SCHEMA_BH - (uCount - 1) * SCHEMA_ROWH;
+      unten.forEach(l => { uy = put(l.id, outerLeft, uy); });
+    }
+
+    const spCount = cnt(site, spange);
+    const avail = containerH - SCHEMA_HEADER;
+    const blockH = Math.max(0, spCount * SCHEMA_ROWH - SCHEMA_VGAP);
+    let sy = top + SCHEMA_HEADER + Math.max(SCHEMA_PAD, (avail - blockH) / 2);
+    spange.forEach(l => { sy = put(l.id, spangeLeft, sy); });
+  });
+
+  return { placed, containers, containerW, containerH, top, W: totalW, H: top + containerH + 46 };
+}
+
+function drawSchemaSVG(schema) {
+  if (!schema.sites || schema.sites.length < 1) return `<p class="hint">Mindestens ein Standort nötig.</p>`;
+  const L = layoutSchema(schema);
+  const cSurface = cssVar("--surface-1"), cText = cssVar("--text-primary"),
+        cText2 = cssVar("--text-secondary"), cGrid = cssVar("--grid"), cBase = cssVar("--baseline");
+  const cyOf = d => d.y + d.h / 2;
+  const find = (layerId, si) => L.placed.filter(d => d.layerId === layerId && d.si === si);
+
+  let containers = "", lines = "", coup = "", boxes = "";
+
+  L.containers.forEach(c => {
+    const lx = c.mirror ? c.x + c.w - 14 : c.x + 14;
+    const anchor = c.mirror ? "end" : "start";
+    containers += `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="12" fill="none" stroke="${cGrid}" stroke-width="1.5"/>`;
+    containers += `<text x="${lx}" y="${c.y + 22}" text-anchor="${anchor}" font-size="13" font-weight="650" fill="${cText2}">${esc(c.name)}</text>`;
+  });
+
+  // Storage-Systeme mit Dual-/Multi-Controller benötigen je Verbindung so viele
+  // redundante Pfade wie Controller. Links, die Storage berühren, werden entsprechend
+  // vervielfacht (leicht versetzt parallel gezeichnet).
+  const nCtrl = Math.max(1, schema.storageControllers || 1);
+  schema.mesh.forEach(rule => {
+    const mult = (rule.from === "storage" || rule.to === "storage") ? nCtrl : 1;
+    L.placed.filter(d => d.layerId === rule.from).forEach(from => {
+      find(rule.to, from.si).forEach(to => {
+        const fromRight = (from.x + from.w / 2) < (to.x + to.w / 2);
+        const x1 = fromRight ? from.x + from.w : from.x;
+        const x2 = fromRight ? to.x : to.x + to.w;
+        const y1c = cyOf(from), y2c = cyOf(to);
+        for (let k = 0; k < mult; k++) {
+          const off = (k - (mult - 1) / 2) * 6;
+          lines += `<line x1="${x1}" y1="${y1c + off}" x2="${x2}" y2="${y2c + off}" stroke="${cBase}" stroke-width="1" opacity="0.7"/>`;
+        }
+      });
+    });
+  });
+
+  if (L.containers.length >= 2) {
+  const centerX = (L.containers[0].x + L.containers[0].w + L.containers[1].x) / 2;
+  schema.couplings.forEach(cp => {
+    const col = schemaColorHex(cp.color);
+    const a = find(cp.pair, 0), b = find(cp.pair, 1);
+    const n = Math.min(a.length, b.length);
+    const bottom = cp.routing === "unten" || cp.routing === "unten-herum";
+    for (let i = 0; i < n; i++) {
+      const da = a[i], db = b[i];
+      if (bottom) {
+        const yBase = L.top + L.containerH - 10 - i * 10;
+        coup += `<path d="M${da.x + da.w / 2} ${da.y + da.h} V${yBase} H${db.x + db.w / 2} V${db.y + db.h}" fill="none" stroke="${col}" stroke-width="1.6"/>`;
+      } else {
+        coup += `<line x1="${da.x + da.w}" y1="${cyOf(da)}" x2="${db.x}" y2="${cyOf(db)}" stroke="${col}" stroke-width="1.6"/>`;
+      }
+    }
+    if (n) {
+      const ly = bottom ? (L.top + L.containerH + 22) : (cyOf(a[0]) - 9);
+      coup += `<text x="${centerX}" y="${ly}" text-anchor="middle" font-size="11.5" fill="${col}">${esc(cp.label)}</text>`;
+    }
+  });
+  }
+
+  L.placed.forEach(d => {
+    const col = schemaColorHex(d.color);
+    // Storage mit mehreren Controllern als gestapelte Einheiten andeuten (versetzte Rahmen dahinter).
+    if (d.layerId === "storage" && nCtrl > 1) {
+      for (let k = nCtrl - 1; k >= 1; k--) {
+        const o = k * 4;
+        boxes += `<rect x="${d.x + o}" y="${d.y + o}" width="${d.w}" height="${d.h}" rx="8" fill="${cSurface}" stroke="${col}" stroke-width="1.5" opacity="0.55"/>`;
+      }
+    }
+    boxes += `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" rx="8" fill="${cSurface}" stroke="${col}" stroke-width="1.5"/>`;
+    boxes += `<text x="${d.x + d.w / 2}" y="${d.y + d.h / 2}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="${cText}">${esc(d.name)}</text>`;
+  });
+
+  const title = schema.title
+    ? `<text x="${L.W / 2}" y="22" text-anchor="middle" font-size="14" font-weight="650" fill="${cText}">${esc(schema.title)}</text>`
+    : "";
+
+  return `<svg viewBox="0 0 ${L.W} ${L.H}" style="width:100%;height:auto;min-width:640px" role="img" aria-label="Infrastruktur-Schema">${title}${containers}${lines}${coup}${boxes}</svg>`;
+}
+
+function drawSchema() {
+  const host = $("#schemaCanvas");
+  if (host) host.innerHTML = drawSchemaSVG(state.schema);
+}
+
+function renderSchemaMask() {
+  const s = state.schema;
+  $("#schemaTitle").value = s.title || "";
+  $("#schemaTopology").value = s.topology || "san";
+  $("#schemaStorageCtrl").value = s.storageControllers || 1;
+  $("#schemaAutoHosts").checked = s.autoHosts !== false;
+  const accent = cssVar((s.layers[0] || {}).color || "--series-1");
+  $("#schemaSites").innerHTML = s.sites.slice(0, 2).map((site, si) => `
+    <div class="scenario-card" data-site="${si}" style="border-top-color:${accent}">
+      <div class="sc-head"><input type="text" data-sfield="name" value="${esc(site.name)}">${s.sites.length > 1 ? `<button class="ghost-del" data-delsite="${si}" title="Standort entfernen">✕</button>` : ""}</div>
+      ${s.layers.map(l => `
+        <div class="field" style="margin-top:10px">
+          <label>${esc(l.label)}</label>
+          ${schemaDevices(site, l.id).map((name, di) => `
+            <div style="display:flex;gap:6px;margin-bottom:5px">
+              <input type="text" data-dev="${l.id}" data-di="${di}" value="${esc(name)}">
+              <button class="ghost-del" data-deldev="${l.id}:${di}" title="Entfernen">✕</button>
+            </div>`).join("")}
+          <button data-adddev="${l.id}" style="font-size:12px;padding:4px 10px">+ ${esc(l.label)}</button>
+        </div>`).join("")}
+    </div>`).join("");
+  if (s.sites.length < 2) {
+    $("#schemaCouplings").innerHTML = `<p class="hint" style="margin:0">Kopplungen verbinden zwei Standorte. Bei einem Standort entfällt dieser Abschnitt (die Definitionen bleiben gespeichert und erscheinen wieder, sobald ein zweiter Standort da ist).</p>`;
+  } else {
+    $("#schemaCouplings").innerHTML = s.couplings.map((c, ci) => `
+    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 32px 24px;gap:8px;align-items:center;margin-bottom:8px" data-coup="${ci}">
+      <input type="text" data-cfield="label" value="${esc(c.label)}">
+      <select data-cfield="pair">${s.layers.map(l => `<option value="${l.id}" ${l.id === c.pair ? "selected" : ""}>${esc(l.label)}</option>`).join("")}</select>
+      <select data-cfield="routing">
+        <option value="direkt" ${c.routing === "direkt" ? "selected" : ""}>direkt</option>
+        <option value="unten" ${(c.routing === "unten" || c.routing === "unten-herum") ? "selected" : ""}>unten herum</option>
+      </select>
+      <input type="color" data-cfield="color" value="${schemaColorHex(c.color)}" style="width:32px;height:32px;padding:2px;min-width:0">
+      <button class="ghost-del" data-delcoup="${ci}" title="Kopplung entfernen">✕</button>
+    </div>`).join("") + `<button id="btnAddCoup" style="font-size:12px;padding:4px 10px;margin-top:2px">+ Kopplung</button>`;
+  }
+  const addSiteBtn = $("#btnAddSite");
+  if (addSiteBtn) addSiteBtn.style.display = s.sites.length >= 2 ? "none" : "";
+}
+
+/* ---------- Events ---------- */
+$("#groupBody").addEventListener("input", (e) => {
+  const tr = e.target.closest("tr");
+  const key = e.target.dataset.key;
+  if (!tr || !key) return;
+  const g = state.groups[+tr.dataset.idx];
+  g[key] = key === "name" ? e.target.value : num(e.target.value);
+  recalc();
+});
+$("#groupBody").addEventListener("click", (e) => {
+  if (e.target.dataset.del !== undefined) {
+    state.groups.splice(+e.target.dataset.del, 1);
+    renderGroups(); recalc();
+  }
+});
+$("#btnAddGroup").addEventListener("click", () => {
+  state.groups.push({ name: "Gruppe " + (state.groups.length + 1), n: 1, sockets: 2, cores: 16, ram: 512, factor: 1, vcpu: 0, vram: 0 });
+  renderGroups(); recalc();
+});
+
+$("#scenarioGrid").addEventListener("input", (e) => {
+  const card = e.target.closest(".scenario-card");
+  const key = e.target.dataset.key;
+  if (!card || !key) return;
+  const sc = state.scenarios[+card.dataset.idx];
+  sc[key] = key === "name" ? e.target.value : num(e.target.value);
+  if (key === "ratio") {
+    card.querySelector('[data-out="ratio"]').textContent = nf1.format(sc.ratio) + " : 1";
+    showSliderTip(e.target, sc);
+  }
+  recalc();
+});
+
+/* Live-Popup am Ratio-Slider: zeigt die resultierende Hostanzahl beim Verschieben */
+const sliderTip = document.createElement("div");
+sliderTip.className = "slider-tip";
+document.body.appendChild(sliderTip);
+let tipTimer = null;
+
+function showSliderTip(slider, sc) {
+  const r = calcScenario(sc, calcIst());
+  sliderTip.innerHTML =
+    `${nf1.format(sc.ratio)} : 1 → ${nf0.format(r.hosts)} Hosts` +
+    (r.limiter === "RAM" ? ` <span class="tip-sub">(RAM-limitiert)</span>` : "");
+  const rect = slider.getBoundingClientRect();
+  const pct = (sc.ratio - num(slider.min)) / (num(slider.max) - num(slider.min));
+  const thumbW = 16;
+  sliderTip.style.left = (rect.left + thumbW / 2 + pct * (rect.width - thumbW)) + "px";
+  sliderTip.style.top = rect.top + "px";
+  sliderTip.style.display = "block";
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(hideSliderTip, 1600);
+}
+function hideSliderTip() { sliderTip.style.display = "none"; clearTimeout(tipTimer); }
+
+$("#scenarioGrid").addEventListener("pointerdown", (e) => {
+  if (e.target.dataset?.key === "ratio") {
+    const card = e.target.closest(".scenario-card");
+    showSliderTip(e.target, state.scenarios[+card.dataset.idx]);
+  }
+});
+window.addEventListener("pointerup", () => { tipTimer = setTimeout(hideSliderTip, 400); });
+window.addEventListener("scroll", hideSliderTip, { passive: true });
+$("#scenarioGrid").addEventListener("click", (e) => {
+  if (e.target.dataset.delsc !== undefined) {
+    state.scenarios.splice(+e.target.dataset.delsc, 1);
+    renderScenarios(); recalc();
+  }
+});
+$("#btnAddScenario").addEventListener("click", () => {
+  const last = state.scenarios[state.scenarios.length - 1];
+  state.scenarios.push({ ...(last || { sockets: 2, cores: 32, ram: 1024, factor: 1.3, ratio: 4, growth: 15, ramUtil: 85, reserve: 1 }), name: "Szenario " + String.fromCharCode(65 + state.scenarios.length) });
+  renderScenarios(); recalc();
+});
+
+$("#htToggle").addEventListener("change", (e) => { state.ht = e.target.checked; recalc(); });
+$("#projectName").addEventListener("input", (e) => { state.project = e.target.value; recalc(); });
+["#priceWin", "#priceVmw", "#priceHpe"].forEach(id => $(id).addEventListener("input", (e) => {
+  const key = { "#priceWin": "win", "#priceVmw": "vmw", "#priceHpe": "hpe" }[id];
+  state.prices[key] = e.target.value === "" ? null : num(e.target.value);
+  recalc();
+}));
+
+/* Paste-Dialog */
+$("#btnPaste").addEventListener("click", () => { $("#pasteArea").value = ""; $("#pasteDialog").showModal(); });
+$("#pasteCancel").addEventListener("click", () => $("#pasteDialog").close());
+$("#pasteOk").addEventListener("click", () => {
+  const lines = $("#pasteArea").value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const groups = [];
+  for (const line of lines) {
+    const parts = line.split(/\t|;/).map(p => p.trim());
+    if (parts.length < 7) continue;
+    if (/server|bezeichnung|cluster/i.test(parts[0]) && !isFinite(num(parts[1]))) continue;
+    const hasFactor = parts.length >= 8;
+    const p = (i) => num(parts[i]);
+    if (!p(1)) continue; // Kopfzeile o. ä.
+    groups.push({
+      name: parts[0] || "Gruppe " + (groups.length + 1),
+      n: p(1), sockets: p(2), cores: p(3), ram: p(4),
+      factor: hasFactor ? (p(5) || 1) : 1,
+      vcpu: hasFactor ? p(6) : p(5),
+      vram: hasFactor ? p(7) : p(6),
+    });
+  }
+  if (groups.length) { state.groups = groups; renderGroups(); recalc(); }
+  $("#pasteDialog").close();
+});
+
+/* Schema-Events */
+$("#schemaTitle").addEventListener("input", (e) => { state.schema.title = e.target.value; drawSchema(); saveLocal(); });
+$("#schemaTopology").addEventListener("change", (e) => applyTopology(e.target.value));
+$("#schemaStorageCtrl").addEventListener("input", (e) => {
+  state.schema.storageControllers = Math.max(1, Math.round(num(e.target.value)) || 1);
+  drawSchema(); saveLocal();
+});
+$("#schemaAutoHosts").addEventListener("change", (e) => {
+  state.schema.autoHosts = e.target.checked;
+  if (e.target.checked) recalc(); else saveLocal();  // beim Einschalten sofort aus Sizing übernehmen
+});
+
+$("#schemaSites").addEventListener("input", (e) => {
+  const siteEl = e.target.closest("[data-site]");
+  if (!siteEl) return;
+  const site = state.schema.sites[+siteEl.dataset.site];
+  if (e.target.dataset.sfield === "name") site.name = e.target.value;
+  else if (e.target.dataset.dev !== undefined) {
+    const lid = e.target.dataset.dev, di = +e.target.dataset.di;
+    if (site.devices[lid]) site.devices[lid][di] = e.target.value;
+    // Manuelle Compute-Änderung: Auto-Übernahme aus Sizing beenden, Eingabe bleibt erhalten.
+    if (lid === "compute" && state.schema.autoHosts) {
+      state.schema.autoHosts = false;
+      $("#schemaAutoHosts").checked = false;
+    }
+  }
+  drawSchema(); saveLocal();
+});
+$("#schemaSites").addEventListener("click", (e) => {
+  const siteEl = e.target.closest("[data-site]");
+  if (!siteEl) return;
+  const site = state.schema.sites[+siteEl.dataset.site];
+  if (e.target.dataset.delsite !== undefined) {
+    if (state.schema.sites.length > 1) state.schema.sites.splice(+e.target.dataset.delsite, 1);
+    renderSchemaMask(); drawSchema(); saveLocal();
+    return;
+  }
+  if (e.target.dataset.adddev !== undefined) {
+    const lid = e.target.dataset.adddev;
+    if (!site.devices[lid]) site.devices[lid] = [];
+    const label = (schemaLayerById(state.schema, lid) || {}).label || "Gerät";
+    site.devices[lid].push(label + " " + (site.devices[lid].length + 1));
+    if (lid === "compute") state.schema.autoHosts = false;
+    renderSchemaMask(); drawSchema(); saveLocal();
+  } else if (e.target.dataset.deldev !== undefined) {
+    const [lid, di] = e.target.dataset.deldev.split(":");
+    if (site.devices[lid]) site.devices[lid].splice(+di, 1);
+    if (lid === "compute") state.schema.autoHosts = false;
+    renderSchemaMask(); drawSchema(); saveLocal();
+  }
+});
+
+$("#schemaCouplings").addEventListener("input", (e) => {
+  const row = e.target.closest("[data-coup]");
+  const f = e.target.dataset.cfield;
+  if (!row || !f) return;
+  state.schema.couplings[+row.dataset.coup][f] = e.target.value;
+  drawSchema(); saveLocal();
+});
+$("#schemaCouplings").addEventListener("click", (e) => {
+  if (e.target.id === "btnAddCoup") {
+    state.schema.couplings.push({ pair: state.schema.layers[0].id, label: "Neue Kopplung", color: "#2a78d6", routing: "direkt" });
+    renderSchemaMask(); drawSchema(); saveLocal();
+  } else if (e.target.dataset.delcoup !== undefined) {
+    state.schema.couplings.splice(+e.target.dataset.delcoup, 1);
+    renderSchemaMask(); drawSchema(); saveLocal();
+  }
+});
+
+$("#btnAddSite").addEventListener("click", () => {
+  if (state.schema.sites.length >= 2) return;
+  const copy = JSON.parse(JSON.stringify(state.schema.sites[0] || { devices: {} }));
+  copy.name = "Standort " + String.fromCharCode(65 + state.schema.sites.length);
+  state.schema.sites.push(copy);
+  renderSchemaMask(); drawSchema(); saveLocal();
+});
+
+$("#btnSchemaFromScenario").addEventListener("click", () => {
+  if (!state.scenarios.length) return;
+  state.schema.autoHosts = true;   // Auto-Übernahme (wieder) einschalten und sofort synchronisieren
+  syncSchemaHosts();
+  renderSchemaMask(); drawSchema(); saveLocal();
+});
+$("#btnSchemaSvg").addEventListener("click", () => {
+  const svg = drawSchemaSVG(state.schema).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
+  download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: "image/svg+xml" }),
+    (state.schema.title || state.project || "schema") + ".svg");
+});
+
+/* Export */
+$("#btnPrint").addEventListener("click", () => window.print());
+$("#btnCsv").addEventListener("click", () => {
+  const rows = [];
+  document.querySelectorAll("#resultTable tr").forEach(tr => {
+    const cells = [...tr.children].map(c => '"' + c.textContent.replace(/"/g, '""') + '"');
+    rows.push(cells.join(";"));
+  });
+  const blob = new Blob(["﻿" + rows.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  download(blob, (state.project || "sizing") + "_ergebnis.csv");
+});
+$("#btnSave").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  download(blob, (state.project || "sizing") + ".json");
+});
+$("#btnLoad").addEventListener("click", () => $("#fileLoad").click());
+$("#fileLoad").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const loaded = JSON.parse(await f.text());
+    if (loaded.groups && loaded.scenarios) { state = loaded; initFromState(); }
+  } catch { alert("Datei konnte nicht gelesen werden."); }
+  e.target.value = "";
+});
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name.replace(/[^\wäöüÄÖÜß.\- ]/g, "_");
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------- Persistenz ---------- */
+function saveLocal() {
+  try { localStorage.setItem("dcsizer", JSON.stringify(state)); } catch {}
+}
+function initFromState() {
+  if (!state.schema) state.schema = defaultSchema();
+  if (!state.schema.topology) state.schema.topology = "san";
+  if (state.schema.storageControllers == null) state.schema.storageControllers = 2;
+  if (state.schema.autoHosts == null) state.schema.autoHosts = false;  // bestehende Stände nicht überschreiben
+  $("#projectName").value = state.project || "";
+  $("#htToggle").checked = !!state.ht;
+  $("#priceWin").value = state.prices.win ?? "";
+  $("#priceVmw").value = state.prices.vmw ?? "";
+  $("#priceHpe").value = state.prices.hpe ?? "";
+  renderGroups();
+  renderScenarios();
+  renderSchemaMask();
+  recalc();
+  drawSchema();
+}
+
+try {
+  const saved = localStorage.getItem("dcsizer");
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    if (parsed.groups && parsed.scenarios) state = parsed;
+  }
+} catch {}
+initFromState();
+
+// Charts bei Theme-Wechsel neu einfärben
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { renderScenarios(); recalc(); renderSchemaMask(); drawSchema(); });
+</script>
+</body>
+</html>
