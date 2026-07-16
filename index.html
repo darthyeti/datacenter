@@ -601,6 +601,7 @@ function calcScenario(sc, ist) {
     sockets: hosts * sc.sockets,
     ratio: totCores > 0 ? vcpuPlan / (totCores * htFactor()) : 0,
     ramUtil: totRam > 0 ? vramPlan / totRam : 0,
+    ramUtilToday: totRam > 0 ? ist.vram / totRam : 0,
     limiter: hostsCpu >= hostsRam ? "CPU" : "RAM",
     lic: { win: hosts * l.win, vmw: hosts * l.vmw, hpe: hosts * l.hpe },
   };
@@ -992,7 +993,7 @@ function renderResultTable(ist, results) {
   row("vCPU (geplant)", nf0.format(ist.vcpu), r => nf0.format(r.vcpuPlan));
   row("vDisk geplant (TB)", nf0.format(ist.vdisk), r => nf0.format(r.vdiskPlan));
   row(state.ht ? "Ratio vCPU : Thread" : "Ratio vCPU : pCore", fmtRatio(ist.ratio), r => fmtRatio(r.ratio));
-  row("RAM-Auslastung", fmtPct(ist.ramUtil), r => fmtPct(r.ramUtil));
+  row("RAM-Auslastung", fmtPct(ist.ramUtil), r => `${fmtPct(r.ramUtilToday)} (${fmtPct(r.ramUtil)})`);
 
   section("Lizenzmengen");
   row("Windows DC – lizenzierte Cores", nf0.format(ist.lic.win), r => nf0.format(r.lic.win));
