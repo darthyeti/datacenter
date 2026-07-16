@@ -397,19 +397,21 @@
         <button id="btnAddSite">+ Standort</button>
         <button id="btnSchemaFromScenario">Compute aus Szenario A übernehmen</button>
         <button id="btnSchemaSvg">SVG exportieren</button>
+        <button id="btnSchemaDrawio">draw.io exportieren</button>
       </div>
     </div>
 
-    <div style="margin-top:18px">
+    <div id="schemaCanvas" style="margin-top:14px;overflow-x:auto"></div>
+
+    <div style="margin-top:20px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <strong style="font-size:13px">Geplantes Wachstum über die Jahre</strong>
         <span class="hint" style="display:inline;margin:0">Basis: Ist-Werte, Wachstum &amp; Jahre aus Szenario A. Jahr 1 = Ist.</span>
         <button id="btnCopyGrowth" class="no-print" style="font-size:12px;padding:4px 10px">Tabelle kopieren</button>
       </div>
+      <div id="growthChart" style="margin-top:10px"></div>
       <div class="scroll-x" style="margin-top:8px"><table class="result-table" id="growthTable"></table></div>
     </div>
-
-    <div id="schemaCanvas" style="margin-top:14px;overflow-x:auto"></div>
   </section>
 
 </main>
@@ -668,6 +670,7 @@ function recalc() {
 
   renderResultTable(ist, results);
   renderCharts(ist, results);
+  renderGrowthChart(ist);
   renderGrowthTable(ist);
 
   $("#reportMeta").textContent =
@@ -699,6 +702,48 @@ function growthSeries(ist) {
       { label: "vDISK TB", vals: mk(ist.vdisk) },
     ],
   };
+}
+
+function niceCeil(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v))), n = v / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+/* Kleines Liniendiagramm der Wachstumsreihen (wie im Excel-Beispiel). */
+function renderGrowthChart(ist) {
+  const host = $("#growthChart");
+  const s = growthSeries(ist);
+  if (!s) { host.innerHTML = ""; return; }
+  const palette = [cssVar("--series-6"), cssVar("--series-4"), cssVar("--series-5")]; // vCPU rot · vRAM grün · vDISK lila
+  const rows = s.rows.map((r, i) => ({ ...r, color: palette[i % palette.length] }));
+  const W = 560, H = 210, padL = 46, padR = 12, padT = 16, padB = 46;
+  const iW = W - padL - padR, iH = H - padT - padB;
+  const maxV = niceCeil(Math.max(1, ...rows.flatMap(r => r.vals)));
+  const nx = s.years;
+  const xAt = j => nx <= 1 ? padL + iW / 2 : padL + j * (iW / (nx - 1));
+  const yAt = v => padT + iH - (v / maxV) * iH;
+  const cGrid = cssVar("--grid"), cText2 = cssVar("--text-secondary"), cText = cssVar("--text-primary");
+  let grid = "", ylab = "", xlab = "", plot = "", lg = "";
+  const ticks = 4;
+  for (let t = 0; t <= ticks; t++) {
+    const v = maxV * t / ticks, y = yAt(v);
+    grid += `<line x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}" stroke="${cGrid}" stroke-width="1"/>`;
+    ylab += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="${cText2}">${nf0.format(Math.round(v))}</text>`;
+  }
+  for (let j = 0; j < nx; j++) xlab += `<text x="${xAt(j)}" y="${padT + iH + 15}" text-anchor="middle" font-size="9.5" fill="${cText2}">${j + 1}</text>`;
+  rows.forEach(r => {
+    plot += `<polyline points="${r.vals.map((v, j) => `${xAt(j).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${r.color}" stroke-width="1.8"/>`;
+    r.vals.forEach((v, j) => { plot += `<circle cx="${xAt(j).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="2.6" fill="${r.color}"/>`; });
+  });
+  let lx = padL;
+  rows.forEach(r => {
+    lg += `<line x1="${lx}" x2="${lx + 16}" y1="${H - 12}" y2="${H - 12}" stroke="${r.color}" stroke-width="2"/><circle cx="${lx + 8}" cy="${H - 12}" r="2.6" fill="${r.color}"/><text x="${lx + 20}" y="${H - 9}" font-size="9.5" fill="${cText}">${esc(r.label)}</text>`;
+    lx += 20 + r.label.length * 5.6 + 18;
+  });
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Wachstum über die Jahre">
+    <text x="${padL + iW / 2}" y="11" text-anchor="middle" font-size="11.5" font-weight="650" fill="${cText}">Wachstum – Jahre</text>
+    ${grid}${ylab}${xlab}${plot}${lg}</svg>`;
 }
 
 function renderGrowthTable(ist) {
@@ -1152,6 +1197,59 @@ function drawSchema() {
   if (host) host.innerHTML = drawSchemaSVG(state.schema);
 }
 
+/* ---------- Export nach draw.io (diagrams.net) als editierbares mxGraph-XML ---------- */
+function xmlEsc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function schemaToDrawio(schema) {
+  const L = layoutSchema(schema);
+  const rnd = n => Math.round(n);
+  const nCtrl = Math.max(1, schema.storageControllers || 1);
+  const keyOf = d => d.si + "|" + d.layerId + "|" + d.idx;
+  const idOf = new Map();
+  const placedAt = (layerId, si) => L.placed.filter(p => p.layerId === layerId && p.si === si);
+  let cells = "", ei = 0;
+
+  // Standort-Rahmen (hinter den Geräten)
+  L.containers.forEach((c, ci) => {
+    cells += `<mxCell id="site-${ci}" value="${xmlEsc(c.name)}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9aa0a6;verticalAlign=top;fontStyle=1;fontSize=13;" vertex="1" parent="1"><mxGeometry x="${rnd(c.x)}" y="${rnd(c.y)}" width="${rnd(c.w)}" height="${rnd(c.h)}" as="geometry"/></mxCell>`;
+  });
+  // Geräte
+  L.placed.forEach((d, di) => {
+    const id = "dev-" + di; idOf.set(keyOf(d), id);
+    const stroke = schemaColorHex(d.color);
+    let label = xmlEsc(d.name);
+    if (d.product) label += `&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;${xmlEsc(d.product)}&lt;/font&gt;`;
+    cells += `<mxCell id="${id}" value="${label}" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=${stroke};fillColor=#ffffff;fontSize=11;" vertex="1" parent="1"><mxGeometry x="${rnd(d.x)}" y="${rnd(d.y)}" width="${rnd(d.w)}" height="${rnd(d.h)}" as="geometry"/></mxCell>`;
+  });
+  // Vermaschung (Storage-Links entsprechend Controllern mehrfach)
+  schema.mesh.forEach(rule => {
+    const mult = (rule.from === "storage" || rule.to === "storage") ? nCtrl : 1;
+    L.placed.filter(p => p.layerId === rule.from).forEach(f => {
+      placedAt(rule.to, f.si).forEach(t => {
+        for (let k = 0; k < mult; k++)
+          cells += `<mxCell id="e${ei++}" style="endArrow=none;html=1;strokeColor=#999999;" edge="1" parent="1" source="${idOf.get(keyOf(f))}" target="${idOf.get(keyOf(t))}"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+      });
+    });
+  });
+  // Standort-Kopplungen
+  if (L.containers.length >= 2) {
+    schema.couplings.forEach(cp => {
+      const a = placedAt(cp.pair, 0), b = placedAt(cp.pair, 1), n = Math.min(a.length, b.length);
+      const stroke = schemaColorHex(cp.color);
+      for (let i = 0; i < n; i++)
+        cells += `<mxCell id="e${ei++}" value="${xmlEsc(cp.label)}" style="endArrow=none;html=1;strokeColor=${stroke};" edge="1" parent="1" source="${idOf.get(keyOf(a[i]))}" target="${idOf.get(keyOf(b[i]))}"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+    });
+  }
+  const title = schema.title
+    ? `<mxCell id="title" value="${xmlEsc(schema.title)}" style="text;html=1;align=center;fontSize=14;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="${rnd(L.W / 2 - 140)}" y="0" width="280" height="22" as="geometry"/></mxCell>`
+    : "";
+  return `<mxfile host="datacenter-sizer"><diagram name="Infrastruktur">` +
+    `<mxGraphModel dx="900" dy="640" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">` +
+    `<root><mxCell id="0"/><mxCell id="1" parent="0"/>${title}${cells}</root></mxGraphModel></diagram></mxfile>`;
+}
+
 function renderSchemaMask() {
   const s = state.schema;
   $("#schemaTitle").value = s.title || "";
@@ -1396,6 +1494,11 @@ $("#btnSchemaSvg").addEventListener("click", () => {
   const svg = drawSchemaSVG(state.schema).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
   download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: "image/svg+xml" }),
     (state.schema.title || state.project || "schema") + ".svg");
+});
+$("#btnSchemaDrawio").addEventListener("click", () => {
+  const xml = schemaToDrawio(state.schema);
+  download(new Blob([xml], { type: "application/xml" }),
+    (state.schema.title || state.project || "schema") + ".drawio");
 });
 $("#btnCopyGrowth").addEventListener("click", async (e) => {
   const btn = e.currentTarget, orig = btn.textContent;  // vor await erfassen (danach ist currentTarget null)
