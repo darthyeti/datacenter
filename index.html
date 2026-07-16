@@ -964,6 +964,27 @@ function layoutSchema(schema) {
   return { placed, containers, containerW, containerH, top, W: totalW, H: top + containerH + 46 };
 }
 
+/* Bricht einen Produktnamen so um (max. 2 Zeilen) und wählt die Schriftgröße so,
+   dass die längste Zeile ungefähr in die Kastenbreite passt (leichter Überstand erlaubt). */
+function fitProductLabel(str, boxW) {
+  const s = (str || "").trim();
+  const maxW = boxW * 1.12;          // erlaubter Überstand
+  const K = 0.55;                    // grobe Zeichenbreite je Schriftgröße
+  const fsFor = (len, cap) => Math.min(cap, maxW / Math.max(1, len * K));
+  // Passt es einigermaßen groß in eine Zeile?
+  if (fsFor(s.length, 9) >= 7.6) return { lines: [s], fs: fsFor(s.length, 9) };
+  // Sonst an Wortgrenze möglichst ausgewogen auf zwei Zeilen verteilen.
+  const words = s.split(/\s+/);
+  if (words.length < 2) return { lines: [s], fs: Math.max(6.5, fsFor(s.length, 8.5)) };
+  let best = null;
+  for (let i = 1; i < words.length; i++) {
+    const a = words.slice(0, i).join(" "), b = words.slice(i).join(" ");
+    const longer = Math.max(a.length, b.length);
+    if (!best || longer < best.longer) best = { a, b, longer };
+  }
+  return { lines: [best.a, best.b], fs: Math.max(6.5, fsFor(best.longer, 8.5)) };
+}
+
 function drawSchemaSVG(schema) {
   if (!schema.sites || schema.sites.length < 1) return `<p class="hint">Mindestens ein Standort nötig.</p>`;
   const L = layoutSchema(schema);
@@ -1034,13 +1055,18 @@ function drawSchemaSVG(schema) {
       }
     }
     boxes += `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" rx="8" fill="${cSurface}" stroke="${col}" stroke-width="1.5"/>`;
-    const cx = d.x + d.w / 2;
+    const cx = d.x + d.w / 2, cy = d.y + d.h / 2;
     if (d.product) {
-      // Bezeichnung oben, geplanter Produktname klein darunter
-      boxes += `<text x="${cx}" y="${d.y + d.h / 2 - 5}" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="${cText}">${esc(d.name)}</text>`;
-      boxes += `<text x="${cx}" y="${d.y + d.h / 2 + 9}" text-anchor="middle" dominant-baseline="central" font-size="8.5" fill="${cText2}">${esc(d.product)}</text>`;
+      // Bezeichnung oben, geplanter Produktname klein darunter – automatisch umgebrochen/skaliert.
+      const fit = fitProductLabel(d.product, d.w);
+      const two = fit.lines.length > 1;
+      boxes += `<text x="${cx}" y="${cy - (two ? 9 : 5)}" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="${cText}">${esc(d.name)}</text>`;
+      const first = cy + (two ? 4 : 9), step = fit.fs + 1.5;
+      fit.lines.forEach((ln, li) => {
+        boxes += `<text x="${cx}" y="${first + li * step}" text-anchor="middle" dominant-baseline="central" font-size="${fit.fs}" fill="${cText2}">${esc(ln)}</text>`;
+      });
     } else {
-      boxes += `<text x="${cx}" y="${d.y + d.h / 2}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="${cText}">${esc(d.name)}</text>`;
+      boxes += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="${cText}">${esc(d.name)}</text>`;
     }
   });
 
