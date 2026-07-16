@@ -1223,13 +1223,22 @@ function schemaToDrawio(schema) {
     if (d.product) label += `&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;${xmlEsc(d.product)}&lt;/font&gt;`;
     cells += `<mxCell id="${id}" value="${label}" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=${stroke};fillColor=#ffffff;fontSize=11;" vertex="1" parent="1"><mxGeometry x="${rnd(d.x)}" y="${rnd(d.y)}" width="${rnd(d.w)}" height="${rnd(d.h)}" as="geometry"/></mxCell>`;
   });
-  // Vermaschung (Storage-Links entsprechend Controllern mehrfach)
+  // Vermaschung (Storage-Links entsprechend Controllern mehrfach, redundante Pfade leicht versetzt)
   schema.mesh.forEach(rule => {
     const mult = (rule.from === "storage" || rule.to === "storage") ? nCtrl : 1;
     L.placed.filter(p => p.layerId === rule.from).forEach(f => {
       placedAt(rule.to, f.si).forEach(t => {
-        for (let k = 0; k < mult; k++)
-          cells += `<mxCell id="e${ei++}" style="endArrow=none;html=1;strokeColor=#999999;" edge="1" parent="1" source="${idOf.get(keyOf(f))}" target="${idOf.get(keyOf(t))}"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+        const srcLeft = (f.x + f.w / 2) < (t.x + t.w / 2);
+        for (let k = 0; k < mult; k++) {
+          let style = "endArrow=none;html=1;strokeColor=#999999;";
+          if (mult > 1) {
+            // Kanten an verteilten Höhen an-/abkoppeln, damit die redundanten Pfade getrennt sichtbar sind.
+            const fr = ((k + 1) / (mult + 1)).toFixed(3);
+            const ex = srcLeft ? 1 : 0, en = srcLeft ? 0 : 1;
+            style += `exitX=${ex};exitY=${fr};exitDx=0;exitDy=0;entryX=${en};entryY=${fr};entryDx=0;entryDy=0;`;
+          }
+          cells += `<mxCell id="e${ei++}" style="${style}" edge="1" parent="1" source="${idOf.get(keyOf(f))}" target="${idOf.get(keyOf(t))}"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+        }
       });
     });
   });
