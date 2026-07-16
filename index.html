@@ -408,9 +408,12 @@
         <strong style="font-size:13px">Geplantes Wachstum über die Jahre</strong>
         <span class="hint" style="display:inline;margin:0">Basis: Ist-Werte, Wachstum &amp; Jahre aus Szenario A. Jahr 1 = Ist.</span>
         <button id="btnCopyGrowth" class="no-print" style="font-size:12px;padding:4px 10px">Tabelle kopieren</button>
+        <button id="btnCopyGrowthImg" class="no-print" style="font-size:12px;padding:4px 10px">Als Bild kopieren</button>
       </div>
-      <div id="growthChart" style="margin-top:10px"></div>
-      <div class="scroll-x" style="margin-top:8px"><table class="result-table" id="growthTable"></table></div>
+      <div style="max-width:560px">
+        <div id="growthChart" style="margin-top:10px"></div>
+        <div class="scroll-x" style="margin-top:8px"><table class="result-table" id="growthTable"></table></div>
+      </div>
     </div>
   </section>
 
@@ -710,12 +713,24 @@ function niceCeil(v) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
 }
 
-/* Kleines Liniendiagramm der Wachstumsreihen (wie im Excel-Beispiel). */
-function renderGrowthChart(ist) {
-  const host = $("#growthChart");
+/* Farb-Set aus den aktuellen CSS-Variablen (Live-Ansicht, folgt dem Theme). */
+function growthColors() {
+  return {
+    text: cssVar("--text-primary"), text2: cssVar("--text-secondary"), grid: cssVar("--grid"),
+    s6: cssVar("--series-6"), s4: cssVar("--series-4"), s5: cssVar("--series-5"), bg: "transparent",
+  };
+}
+/* Festes helles Farb-Set für das kopierte Bild (immer gut lesbar auf Weiß). */
+const GROWTH_IMG_COLORS = {
+  text: "#0b0b0b", text2: "#52514e", grid: "#e1e0d9",
+  s6: "#e34948", s4: "#008300", s5: "#4a3aa7", bg: "#ffffff",
+};
+
+/* Baut den SVG-Inhalt (ohne <svg>-Hülle) des Wachstums-Liniendiagramms. */
+function growthChartParts(ist, C) {
   const s = growthSeries(ist);
-  if (!s) { host.innerHTML = ""; return; }
-  const palette = [cssVar("--series-6"), cssVar("--series-4"), cssVar("--series-5")]; // vCPU rot · vRAM grün · vDISK lila
+  if (!s) return null;
+  const palette = [C.s6, C.s4, C.s5]; // vCPU rot · vRAM grün · vDISK lila
   const rows = s.rows.map((r, i) => ({ ...r, color: palette[i % palette.length] }));
   const W = 560, H = 210, padL = 46, padR = 12, padT = 16, padB = 46;
   const iW = W - padL - padR, iH = H - padT - padB;
@@ -723,27 +738,33 @@ function renderGrowthChart(ist) {
   const nx = s.years;
   const xAt = j => nx <= 1 ? padL + iW / 2 : padL + j * (iW / (nx - 1));
   const yAt = v => padT + iH - (v / maxV) * iH;
-  const cGrid = cssVar("--grid"), cText2 = cssVar("--text-secondary"), cText = cssVar("--text-primary");
   let grid = "", ylab = "", xlab = "", plot = "", lg = "";
   const ticks = 4;
   for (let t = 0; t <= ticks; t++) {
     const v = maxV * t / ticks, y = yAt(v);
-    grid += `<line x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}" stroke="${cGrid}" stroke-width="1"/>`;
-    ylab += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="${cText2}">${nf0.format(Math.round(v))}</text>`;
+    grid += `<line x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}" stroke="${C.grid}" stroke-width="1"/>`;
+    ylab += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="${C.text2}">${nf0.format(Math.round(v))}</text>`;
   }
-  for (let j = 0; j < nx; j++) xlab += `<text x="${xAt(j)}" y="${padT + iH + 15}" text-anchor="middle" font-size="9.5" fill="${cText2}">${j + 1}</text>`;
+  for (let j = 0; j < nx; j++) xlab += `<text x="${xAt(j)}" y="${padT + iH + 15}" text-anchor="middle" font-size="9.5" fill="${C.text2}">${j + 1}</text>`;
   rows.forEach(r => {
     plot += `<polyline points="${r.vals.map((v, j) => `${xAt(j).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${r.color}" stroke-width="1.8"/>`;
     r.vals.forEach((v, j) => { plot += `<circle cx="${xAt(j).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="2.6" fill="${r.color}"/>`; });
   });
   let lx = padL;
   rows.forEach(r => {
-    lg += `<line x1="${lx}" x2="${lx + 16}" y1="${H - 12}" y2="${H - 12}" stroke="${r.color}" stroke-width="2"/><circle cx="${lx + 8}" cy="${H - 12}" r="2.6" fill="${r.color}"/><text x="${lx + 20}" y="${H - 9}" font-size="9.5" fill="${cText}">${esc(r.label)}</text>`;
+    lg += `<line x1="${lx}" x2="${lx + 16}" y1="${H - 12}" y2="${H - 12}" stroke="${r.color}" stroke-width="2"/><circle cx="${lx + 8}" cy="${H - 12}" r="2.6" fill="${r.color}"/><text x="${lx + 20}" y="${H - 9}" font-size="9.5" fill="${C.text}">${esc(r.label)}</text>`;
     lx += 20 + r.label.length * 5.6 + 18;
   });
-  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Wachstum über die Jahre">
-    <text x="${padL + iW / 2}" y="11" text-anchor="middle" font-size="11.5" font-weight="650" fill="${cText}">Wachstum – Jahre</text>
-    ${grid}${ylab}${xlab}${plot}${lg}</svg>`;
+  const inner = `<text x="${padL + iW / 2}" y="11" text-anchor="middle" font-size="11.5" font-weight="650" fill="${C.text}">Wachstum – Jahre</text>${grid}${ylab}${xlab}${plot}${lg}`;
+  return { W, H, inner };
+}
+
+/* Kleines Liniendiagramm der Wachstumsreihen (wie im Excel-Beispiel). */
+function renderGrowthChart(ist) {
+  const host = $("#growthChart");
+  const p = growthChartParts(ist, growthColors());
+  if (!p) { host.innerHTML = ""; return; }
+  host.innerHTML = `<svg viewBox="0 0 ${p.W} ${p.H}" style="width:100%;max-width:${p.W}px;height:auto" role="img" aria-label="Wachstum über die Jahre">${p.inner}</svg>`;
 }
 
 function renderGrowthTable(ist) {
@@ -761,6 +782,67 @@ function growthTSV(ist) {
   const header = ["Wachstum – Jahre", ...Array.from({ length: s.years }, (_, j) => "Jahr " + (j + 1))].join("\t");
   const rows = s.rows.map(r => [r.label, ...r.vals].join("\t"));
   return [header, ...rows].join("\n");
+}
+
+/* Kombiniertes Bild: Diagramm + Tabelle (gleiche Breite) als eigenständiges SVG. */
+function growthImageSVG(ist) {
+  const C = GROWTH_IMG_COLORS;
+  const p = growthChartParts(ist, C);
+  const s = growthSeries(ist);
+  if (!p || !s) return null;
+  const W = p.W;
+  const rowH = 24, labelW = 104, gap = 12;
+  const colW = (W - labelW) / s.years;
+  const tableTop = p.H + gap;
+  const tableH = (1 + s.rows.length) * rowH;
+  const H = tableTop + tableH + 2;
+  const cx = c => labelW + c * colW; // rechte Kante der Wertespalte c (1-basiert)
+  let tbl = "";
+  const drawRow = (i, cells, head) => {
+    const y = i * rowH, bl = y + rowH / 2 + 4;
+    const col = head ? C.text2 : C.text, w = head ? 650 : 400;
+    tbl += `<line x1="0" x2="${W}" y1="${y + rowH}" y2="${y + rowH}" stroke="${C.grid}" stroke-width="1"/>`;
+    tbl += `<text x="8" y="${bl}" font-size="11.5" font-weight="${w}" fill="${col}">${esc(cells[0])}</text>`;
+    for (let c = 1; c < cells.length; c++) {
+      tbl += `<text x="${cx(c) - 8}" y="${bl}" text-anchor="end" font-size="11.5" font-weight="${w}" fill="${col}">${esc(cells[c])}</text>`;
+    }
+  };
+  drawRow(0, ["Wachstum – Jahre", ...Array.from({ length: s.years }, (_, j) => "Jahr " + (j + 1))], true);
+  s.rows.forEach((r, i) => drawRow(i + 1, [r.label, ...r.vals.map(v => nf0.format(v))], false));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Segoe UI, Arial, sans-serif">`
+    + `<rect x="0" y="0" width="${W}" height="${H}" fill="${C.bg}"/>`
+    + `<line x1="0" x2="${W}" y1="${tableTop}" y2="${tableTop}" stroke="${C.grid}" stroke-width="1"/>`
+    + p.inner
+    + `<g transform="translate(0,${tableTop})">${tbl}</g></svg>`;
+  return { svg, W, H };
+}
+
+/* Rastert das kombinierte SVG und legt es als PNG in die Zwischenablage (Fallback: Download). */
+async function copyGrowthImage() {
+  const out = growthImageSVG(calcIst());
+  if (!out) return null;
+  const scale = 2;
+  const url = URL.createObjectURL(new Blob([out.svg], { type: "image/svg+xml;charset=utf-8" }));
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const canvas = document.createElement("canvas");
+    canvas.width = out.W * scale; canvas.height = out.H * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0, out.W, out.H);
+    const blob = await new Promise(res => canvas.toBlob(res, "image/png"));
+    if (navigator.clipboard && window.ClipboardItem) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        return true;
+      } catch (e) {}
+    }
+    download(blob, (state.project || "wachstum") + ".png");
+    return false;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function copyText(text) {
@@ -1514,6 +1596,12 @@ $("#btnCopyGrowth").addEventListener("click", async (e) => {
   await copyText(growthTSV(calcIst()));
   btn.textContent = "Kopiert ✓";
   setTimeout(() => { btn.textContent = orig; }, 1400);
+});
+$("#btnCopyGrowthImg").addEventListener("click", async (e) => {
+  const btn = e.currentTarget, orig = btn.textContent;
+  const copied = await copyGrowthImage();
+  btn.textContent = copied === false ? "Als PNG gespeichert ✓" : "Bild kopiert ✓";
+  setTimeout(() => { btn.textContent = orig; }, 1600);
 });
 
 /* Export */
