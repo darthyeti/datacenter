@@ -234,6 +234,7 @@
     .charts-row { grid-template-columns: 1fr 1fr; }
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js"></script>
 </head>
 <body>
 
@@ -248,7 +249,7 @@
     <input type="text" id="projectName" placeholder="z. B. Kunde XY – Refresh 2026">
   </div>
   <div class="toolbar no-print" style="margin-top:0">
-    <button id="btnPrint" class="primary">PDF / Drucken</button>
+    <button id="btnPrint" class="primary">PPTX exportieren</button>
     <button id="btnCsv">CSV-Export</button>
     <button id="btnSave">Speichern (JSON)</button>
     <button id="btnLoad">Laden</button>
@@ -953,6 +954,339 @@ async function copyResultTableImage() {
   const out = resultTableImageSVG();
   if (!out) return null;
   return copySvgAsImage(out.svg, out.W, out.H, (state.project || "ergebnis") + ".png");
+}
+
+/* ==================== PPTX-Export ==================== */
+/* Native, in PowerPoint editierbare Präsentation (Tabellen/Charts/Shapes statt Bilder).
+   Nutzt feste helle Palette (LIGHT_PALETTE) für ein durchgängiges, theme-unabhängiges Layout. */
+function hx(c) { return String(c || "").replace(/^#/, "").toUpperCase(); }
+
+const PPTX_W = 13.33, PPTX_H = 7.5, PPTX_MX = 0.5, PPTX_CW = PPTX_W - 2 * PPTX_MX, PPTX_BOTTOM = PPTX_H - 0.4;
+const PPTX_FONT = "Calibri";
+
+/* Farbband + Titel oben auf jeder Inhaltsfolie; liefert die Y-Position, ab der Inhalt beginnen darf. */
+function addPptxSlideHeader(pptx, slide, title, subtitle) {
+  const C = LIGHT_PALETTE;
+  slide.background = { color: hx(C["--page"]) };
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: PPTX_W, h: 0.09, fill: { color: hx(C["--series-1"]) }, line: { type: "none" } });
+  slide.addText(title, { x: PPTX_MX, y: 0.28, w: PPTX_CW, h: 0.5, fontSize: 22, bold: true, color: hx(C["--text-primary"]), fontFace: PPTX_FONT });
+  if (subtitle) slide.addText(subtitle, { x: PPTX_MX, y: 0.72, w: PPTX_CW, h: 0.3, fontSize: 12, color: hx(C["--text-secondary"]), fontFace: PPTX_FONT });
+  slide.addShape(pptx.ShapeType.line, { x: PPTX_MX, y: 1.06, w: PPTX_CW, h: 0, line: { color: hx(C["--grid"]), width: 1 } });
+  return 1.28;
+}
+
+/* Reihe kleiner KPI-Kacheln (Wert groß, Label klein darunter). */
+function addPptxKpiRow(pptx, slide, items, x, y, totalW, h) {
+  const C = LIGHT_PALETTE;
+  const gap = 0.12, n = items.length, tileW = (totalW - gap * (n - 1)) / n;
+  items.forEach(([val, label], i) => {
+    const tx = x + i * (tileW + gap);
+    slide.addShape(pptx.ShapeType.roundRect, { x: tx, y, w: tileW, h, rectRadius: 0.06, fill: { color: hx(C["--surface-1"]) }, line: { color: hx(C["--grid"]), width: 1 } });
+    slide.addText(String(val), { x: tx + 0.1, y: y + 0.08, w: tileW - 0.2, h: h * 0.52, fontSize: 17, bold: true, color: hx(C["--text-primary"]), fontFace: PPTX_FONT, align: "left", valign: "bottom" });
+    slide.addText(label, { x: tx + 0.1, y: y + h * 0.58, w: tileW - 0.2, h: h * 0.36, fontSize: 9, color: hx(C["--muted"]), fontFace: PPTX_FONT, align: "left", valign: "top" });
+  });
+}
+
+/* Bounding-Box + Kipprichtung für eine Linie von (x1,y1) nach (x2,y2) (PptxGenJS kennt nur x/y/w/h + flipV). */
+function pptxLineBox(x1, y1, x2, y2) {
+  const left = x1 <= x2 ? { x: x1, y: y1 } : { x: x2, y: y2 };
+  const right = x1 <= x2 ? { x: x2, y: y2 } : { x: x1, y: y1 };
+  return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1), flipV: left.y > right.y };
+}
+
+/* ---------- Folie 1: Titel ---------- */
+function pptxTitleSlide(pptx) {
+  const C = LIGHT_PALETTE;
+  const slide = pptx.addSlide();
+  slide.background = { color: hx(C["--page"]) };
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 3.15, w: PPTX_W, h: 0.09, fill: { color: hx(C["--series-1"]) }, line: { type: "none" } });
+  slide.addText(state.project || "Datacenter Sizing", { x: 0.9, y: 2.35, w: 11.5, h: 0.75, fontSize: 34, bold: true, color: hx(C["--text-primary"]), fontFace: PPTX_FONT });
+  slide.addText("Virtualisierungs-Sizing – IST-Analyse, Planung & Ergebnis", { x: 0.9, y: 3.4, w: 11.5, h: 0.45, fontSize: 15, color: hx(C["--text-secondary"]), fontFace: PPTX_FONT });
+  slide.addText(new Date().toLocaleDateString("de-DE"), { x: 0.9, y: 6.7, w: 4, h: 0.35, fontSize: 11, color: hx(C["--muted"]), fontFace: PPTX_FONT });
+  slide.addText("Datacenter Sizer", { x: PPTX_W - 4.4, y: 6.7, w: 3.5, h: 0.35, fontSize: 11, align: "right", color: hx(C["--muted"]), fontFace: PPTX_FONT });
+}
+
+/* ---------- Folie 2: Ausgangssituation (IST) ---------- */
+function pptxIstSlide(pptx, ist) {
+  const C = LIGHT_PALETTE;
+  const slide = pptx.addSlide();
+  const y0 = addPptxSlideHeader(pptx, slide, "Ausgangssituation (IST)", "Aktueller Serverbestand und provisionierte Werte");
+
+  addPptxKpiRow(pptx, slide, [
+    [nf0.format(ist.servers), "Server"],
+    [nf0.format(ist.pcores), "physische Cores"],
+    [nf0.format(ist.vcpu), "prov. vCPU"],
+    [fmtRatio(ist.ratio), state.ht ? "vCPU : Thread" : "vCPU : pCore"],
+    [nf0.format(ist.ram) + " GB", "RAM gesamt"],
+    [fmtPct(ist.ramUtil), "vRAM-Provisionierung"],
+    [nf0.format(ist.vdisk) + " TB", "vDisk gesamt"],
+  ], PPTX_MX, y0, PPTX_CW, 0.9);
+
+  const headers = ["Bezeichnung", "Server", "Sockel/Server", "Cores/Sockel", "RAM/Server (GB)", "CPU-Gen-Faktor", "Prov. vCPU", "Prov. vRAM (GB)", "Prov. vDisk (TB)"];
+  const colW = [2.3, 1.05, 1.3, 1.25, 1.55, 1.3, 1.2, 1.3, 1.08];
+  const headRow = headers.map(h => ({ text: h, options: { bold: true, fontSize: 9.5, color: hx(C["--text-secondary"]), fill: { color: hx(C["--surface-1"]) }, align: "left" } }));
+  const dataRows = state.groups.map(g => [g.name, nf0.format(g.n), nf0.format(g.sockets), nf0.format(g.cores), nf0.format(g.ram), nf1.format(g.factor), nf0.format(g.vcpu), nf0.format(g.vram), nf0.format(g.vdisk)]
+    .map((v, ci) => ({ text: String(v), options: { align: ci === 0 ? "left" : "right", fontSize: 10.5 } })));
+
+  slide.addTable([headRow, ...dataRows], {
+    x: PPTX_MX, y: y0 + 1.15, w: PPTX_CW, colW,
+    color: hx(C["--text-primary"]), fontFace: PPTX_FONT, fontSize: 10.5,
+    border: { type: "solid", color: hx(C["--grid"]), pt: 0.75 }, autoPage: false,
+  });
+}
+
+/* ---------- Folie 3: Sizing (Planungs-Szenarien) ---------- */
+function pptxSizingSlide(pptx, ist, results) {
+  const C = LIGHT_PALETTE;
+  const slide = pptx.addSlide();
+  const y0 = addPptxSlideHeader(pptx, slide, "Sizing – Planungs-Szenarien", "Zielhardware und Planungswerte je Szenario");
+
+  if (!state.scenarios.length) {
+    slide.addText("Keine Planungs-Szenarien angelegt.", { x: PPTX_MX, y: y0 + 0.3, w: PPTX_CW, h: 0.5, fontSize: 14, color: hx(C["--muted"]), fontFace: PPTX_FONT });
+    return;
+  }
+
+  const paramRows = [
+    ["Sockel je Host", sc => nf0.format(sc.sockets)],
+    ["Cores je Sockel", sc => nf0.format(sc.cores)],
+    ["RAM je Host (GB)", sc => nf0.format(sc.ram)],
+    ["CPU-Gen-Faktor (neu)", sc => nf1.format(sc.factor)],
+    ["Ziel-Überprovisionierung vCPU:pCore", sc => fmtRatio(sc.ratio)],
+    ["Wachstum (% p. a.)", sc => nf0.format(sc.growth) + " %"],
+    ["Jahre (Jahr 1 = Ist)", sc => nf0.format(sc.years)],
+    ["Max. RAM-Auslastung (%)", sc => nf0.format(sc.ramUtil) + " %"],
+    ["Reserve-Hosts (N+x)", sc => nf0.format(sc.reserve)],
+  ];
+  const resultRows = [
+    ["Benötigte Hosts (inkl. Reserve)", (sc, r) => nf0.format(r.hosts)],
+    ["davon CPU-/RAM-bedingt", (sc, r) => `${nf0.format(r.hostsCpu)} / ${nf0.format(r.hostsRam)} (${r.limiter}-limitiert)`],
+    ["Effektive Ratio (alle Hosts)", (sc, r) => fmtRatio(r.ratio)],
+    ["RAM-Auslastung (alle Hosts)", (sc, r) => fmtPct(r.ramUtil)],
+  ];
+
+  const headRow = [
+    { text: "", options: { fill: { color: hx(C["--surface-1"]) } } },
+    ...state.scenarios.map((sc, i) => ({ text: sc.name, options: { bold: true, fontSize: 10, color: hx(C[SCENARIO_COLORS[i % SCENARIO_COLORS.length]]), fill: { color: hx(C["--surface-1"]) }, align: "center" } })),
+  ];
+  const body = [
+    ...paramRows.map(([label, fn]) => [
+      { text: label, options: { align: "left", fontSize: 9.5, color: hx(C["--text-secondary"]) } },
+      ...state.scenarios.map(sc => ({ text: fn(sc), options: { align: "center", fontSize: 9.5 } })),
+    ]),
+    ...resultRows.map(([label, fn]) => [
+      { text: label, options: { align: "left", fontSize: 9.5, bold: true, color: hx(C["--text-primary"]) } },
+      ...state.scenarios.map((sc, i) => ({ text: fn(sc, results[i]), options: { align: "center", fontSize: 9.5, bold: true } })),
+    ]),
+  ];
+  const colW = [3.2, ...state.scenarios.map(() => (PPTX_CW - 3.2) / state.scenarios.length)];
+  const tableH = (body.length + 1) * 0.24;
+  slide.addTable([headRow, ...body], {
+    x: PPTX_MX, y: y0, w: PPTX_CW, colW,
+    color: hx(C["--text-primary"]), fontFace: PPTX_FONT,
+    border: { type: "solid", color: hx(C["--grid"]), pt: 0.75 }, autoPage: false,
+  });
+
+  // Wachstumsdiagramm (vCPU/vRAM/vDISK über die Jahre) als natives Liniendiagramm
+  const gs = growthSeries(ist);
+  if (gs) {
+    const chartY = y0 + tableH + 0.25;
+    const chartH = Math.max(1.8, PPTX_BOTTOM - chartY);
+    const catLabels = Array.from({ length: gs.years }, (_, j) => "Jahr " + (j + 1));
+    const chartData = gs.rows.map(r => ({ name: r.label, labels: catLabels, values: r.vals }));
+    const lineColors = [hx(C["--series-6"]), hx(C["--series-4"]), hx(C["--series-5"])];
+    slide.addChart(pptx.ChartType.line, chartData, {
+      x: PPTX_MX, y: chartY, w: PPTX_CW, h: chartH,
+      chartColors: lineColors,
+      showTitle: true, title: `Wachstum – Jahre (${nf0.format(gs.growthPct)} % p. a.)`,
+      titleFontSize: 12, titleColor: hx(C["--text-primary"]),
+      showLegend: true, legendPos: "b", legendFontSize: 9,
+      catAxisLabelFontSize: 9, valAxisLabelFontSize: 9,
+      lineDataSymbol: "circle", lineDataSymbolSize: 5, lineSize: 2,
+      catAxisLineColor: hx(C["--grid"]), valAxisLineColor: hx(C["--grid"]),
+    });
+  }
+}
+
+/* ---------- Folie 4: Soll & Ergebnis ---------- */
+function pptxResultSlide(pptx, ist, results) {
+  const C = LIGHT_PALETTE;
+  const slide = pptx.addSlide();
+  const y0 = addPptxSlideHeader(pptx, slide, "Soll & Ergebnis", "Hardware, Auslastung und Lizenzmengen im Vergleich");
+
+  const table = $("#resultTable");
+  const trs = table ? [...table.rows] : [];
+  let tableBottom = y0;
+  if (trs.length) {
+    const nCols = trs[0].cells.length;
+    const swatchColors = [hx(C["--ist-bar"]), ...state.scenarios.map((sc, i) => hx(C[SCENARIO_COLORS[i % SCENARIO_COLORS.length]]))];
+    const rowH = 0.205;
+    const rows = trs.map((tr, ri) => {
+      if (tr.classList.contains("section-row")) {
+        return [{ text: tr.cells[0].textContent.trim().toUpperCase(), options: { colspan: nCols, bold: true, fontSize: 8.5, color: hx(C["--muted"]), fill: { color: hx(C["--page"]) }, align: "left" } }];
+      }
+      const isHead = ri === 0;
+      return [...tr.cells].map((td, ci) => ({
+        text: (isHead && ci > 0 ? "● " : "") + td.textContent.trim(),
+        options: {
+          align: ci === 0 ? "left" : "right", fontSize: 9.5, bold: isHead,
+          color: isHead ? (ci > 0 ? swatchColors[ci] : hx(C["--text-secondary"])) : hx(C["--text-primary"]),
+          fill: { color: hx(C["--surface-1"]) },
+        },
+      }));
+    });
+    const colW = [3.0, ...Array.from({ length: nCols - 1 }, () => (PPTX_CW - 3.0) / (nCols - 1))];
+    const tableH = rows.length * rowH;
+    slide.addTable(rows, {
+      x: PPTX_MX, y: y0, w: PPTX_CW, colW,
+      color: hx(C["--text-primary"]), fontFace: PPTX_FONT,
+      border: { type: "solid", color: hx(C["--grid"]), pt: 0.5 }, autoPage: false,
+    });
+    tableBottom = y0 + tableH;
+  }
+
+  // Balkendiagramme: Hosts & physische Cores, IST vs. Szenarien
+  const labels = ["IST", ...state.scenarios.map(s => s.name)];
+  const barColors = labels.map((_, i) => i === 0 ? hx(C["--ist-bar"]) : hx(C[SCENARIO_COLORS[(i - 1) % SCENARIO_COLORS.length]]));
+  const chartY = tableBottom + 0.25;
+  const chartH = Math.max(1.6, PPTX_BOTTOM - chartY);
+  const chartW = (PPTX_CW - 0.3) / 2;
+  const mkBarOpts = (title, x) => ({
+    x, y: chartY, w: chartW, h: chartH, chartColors: barColors, showLegend: false, barDir: "col",
+    showTitle: true, title, titleFontSize: 11, titleColor: hx(C["--text-primary"]),
+    catAxisLabelFontSize: 9, valAxisLabelFontSize: 9,
+    catAxisLineColor: hx(C["--grid"]), valAxisLineColor: hx(C["--grid"]),
+    showValue: true, dataLabelFontSize: 8, dataLabelColor: hx(C["--text-secondary"]),
+  });
+  slide.addChart(pptx.ChartType.bar, [{ name: "Hosts", labels, values: [ist.servers, ...results.map(r => r.hosts)] }],
+    mkBarOpts("Hosts – IST vs. geplant", PPTX_MX));
+  slide.addChart(pptx.ChartType.bar, [{ name: "Physische Cores", labels, values: [ist.pcores, ...results.map(r => r.totCores)] }],
+    mkBarOpts("Physische Cores – IST vs. geplant", PPTX_MX + chartW + 0.3));
+}
+
+/* ---------- Folie 5: Infrastruktur-Schema ---------- */
+function pptxSchemaSlide(pptx, schema) {
+  const C = LIGHT_PALETTE;
+  const slide = pptx.addSlide();
+  const y0 = addPptxSlideHeader(pptx, slide, "Infrastruktur-Schema", schema.title || "Standort- und Geräteübersicht");
+
+  if (!schema.sites || schema.sites.length < 1) {
+    slide.addText("Kein Standort im Infrastruktur-Schema angelegt.", { x: PPTX_MX, y: y0 + 0.3, w: PPTX_CW, h: 0.5, fontSize: 14, color: hx(C["--muted"]), fontFace: PPTX_FONT });
+    return;
+  }
+
+  const L = layoutSchema(schema);
+  const contentH = PPTX_BOTTOM - y0;
+  const scale = Math.min(PPTX_CW / L.W, contentH / L.H);
+  const offX = PPTX_MX + (PPTX_CW - L.W * scale) / 2;
+  const offY = y0 + (contentH - L.H * scale) / 2;
+  const px = v => v * scale;
+  const X = v => offX + v * scale;
+  const Y = v => offY + v * scale;
+
+  const cyOf = d => d.y + d.h / 2;
+  const find = (layerId, si) => L.placed.filter(d => d.layerId === layerId && d.si === si);
+  const line = (x1, y1, x2, y2, color, width) => {
+    const b = pptxLineBox(X(x1), Y(y1), X(x2), Y(y2));
+    slide.addShape(pptx.ShapeType.line, { x: b.x, y: b.y, w: b.w, h: b.h, flipV: b.flipV, line: { color, width } });
+  };
+
+  // Standort-Container
+  L.containers.forEach(c => {
+    slide.addShape(pptx.ShapeType.roundRect, { x: X(c.x), y: Y(c.y), w: px(c.w), h: px(c.h), rectRadius: 0.08, fill: { type: "none" }, line: { color: hx(C["--grid"]), width: 1.2 } });
+    slide.addText(c.name, {
+      x: X(c.x) + 0.06, y: Y(c.y) + 0.03, w: px(c.w) - 0.12, h: 0.24,
+      fontSize: 11, bold: true, color: hx(C["--text-secondary"]), fontFace: PPTX_FONT,
+      align: c.mirror ? "right" : "left",
+    });
+  });
+
+  // Mesh-Verbindungen innerhalb eines Standorts
+  const nCtrl = Math.max(1, schema.storageControllers || 1);
+  (schema.mesh || []).forEach(rule => {
+    const mult = (rule.from === "storage" || rule.to === "storage") ? nCtrl : 1;
+    L.placed.filter(d => d.layerId === rule.from).forEach(from => {
+      find(rule.to, from.si).forEach(to => {
+        const fromRight = (from.x + from.w / 2) < (to.x + to.w / 2);
+        const x1 = fromRight ? from.x + from.w : from.x;
+        const x2 = fromRight ? to.x : to.x + to.w;
+        const y1c = cyOf(from), y2c = cyOf(to);
+        for (let k = 0; k < mult; k++) {
+          const off = (k - (mult - 1) / 2) * 6;
+          line(x1, y1c + off, x2, y2c + off, hx(C["--baseline"]), 0.75);
+        }
+      });
+    });
+  });
+
+  // Standort-Kopplungen
+  if (L.containers.length >= 2) {
+    const centerX = (L.containers[0].x + L.containers[0].w + L.containers[1].x) / 2;
+    (schema.couplings || []).forEach(cp => {
+      const col = hx(schemaColorHex(cp.color));
+      const a = find(cp.pair, 0), b = find(cp.pair, 1);
+      const n = Math.min(a.length, b.length);
+      const bottom = cp.routing === "unten" || cp.routing === "unten-herum";
+      for (let i = 0; i < n; i++) {
+        const da = a[i], db = b[i];
+        if (bottom) {
+          const yBase = L.top + L.containerH - 10 - i * 10;
+          const dax = da.x + da.w / 2, dbx = db.x + db.w / 2;
+          line(dax, da.y + da.h, dax, yBase, col, 1.4);
+          line(dax, yBase, dbx, yBase, col, 1.4);
+          line(dbx, yBase, dbx, db.y + db.h, col, 1.4);
+        } else {
+          line(da.x + da.w, cyOf(da), db.x, cyOf(db), col, 1.4);
+        }
+      }
+      if (n) {
+        const ly = bottom ? (L.top + L.containerH + 14) : (cyOf(a[0]) - 16);
+        slide.addText(cp.label, { x: X(centerX) - 1.5, y: Y(ly), w: 3, h: 0.22, fontSize: 9.5, align: "center", color: col, fontFace: PPTX_FONT });
+      }
+    });
+  }
+
+  // Geräte-Boxen
+  L.placed.forEach(d => {
+    const col = hx(schemaColorHex(d.color));
+    slide.addShape(pptx.ShapeType.roundRect, {
+      x: X(d.x), y: Y(d.y), w: px(d.w), h: px(d.h), rectRadius: 0.05,
+      fill: { color: hx(C["--surface-1"]) }, line: { color: col, width: 1.2 },
+    });
+    const textRuns = d.product
+      ? [{ text: d.name, options: { fontSize: 9.5, color: hx(C["--text-primary"]), breakLine: true } }, { text: d.product, options: { fontSize: 7.5, color: hx(C["--text-secondary"]) } }]
+      : d.name;
+    slide.addText(textRuns, {
+      x: X(d.x), y: Y(d.y), w: px(d.w), h: px(d.h),
+      fontSize: 9.5, align: "center", valign: "middle", color: hx(C["--text-primary"]), fontFace: PPTX_FONT,
+    });
+  });
+}
+
+/* ---------- Orchestrator ---------- */
+async function buildPptx() {
+  if (typeof PptxGenJS === "undefined") {
+    alert("PPTX-Bibliothek konnte nicht geladen werden (keine Internetverbindung?). Bitte Verbindung prüfen und erneut versuchen.");
+    return false;
+  }
+  const pptx = new PptxGenJS();
+  pptx.defineLayout({ name: "DCS169", width: PPTX_W, height: PPTX_H });
+  pptx.layout = "DCS169";
+  pptx.author = "Datacenter Sizer";
+  pptx.title = state.project || "Datacenter Sizing";
+
+  const ist = calcIst();
+  const results = state.scenarios.map(sc => calcScenario(sc, ist));
+
+  withLightPalette(() => {
+    pptxTitleSlide(pptx);
+    pptxIstSlide(pptx, ist);
+    pptxSizingSlide(pptx, ist, results);
+    pptxResultSlide(pptx, ist, results);
+    pptxSchemaSlide(pptx, state.schema);
+  });
+
+  await pptx.writeFile({ fileName: (state.project || "sizing").replace(/[^\wäöüÄÖÜß.\- ]/g, "_") + ".pptx" });
+  return true;
 }
 
 function copyText(text) {
@@ -1727,7 +2061,18 @@ $("#btnCopyGrowthImg").addEventListener("click", async (e) => {
 });
 
 /* Export */
-$("#btnPrint").addEventListener("click", () => window.print());
+$("#btnPrint").addEventListener("click", async (e) => {
+  const btn = e.currentTarget, orig = btn.textContent;
+  btn.textContent = "Erstelle…"; btn.disabled = true;
+  try {
+    await buildPptx();
+  } catch (err) {
+    console.error(err);
+    alert("PPTX-Export fehlgeschlagen: " + err.message);
+  } finally {
+    btn.textContent = orig; btn.disabled = false;
+  }
+});
 $("#btnCsv").addEventListener("click", () => {
   const rows = [];
   document.querySelectorAll("#resultTable tr").forEach(tr => {
