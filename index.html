@@ -812,11 +812,25 @@ function chartSingleColored(title, sub, labels, values, colorFor, fmt) {
 }
 
 /* ---------- Infrastruktur-Schema ---------- */
+/* Ein Gerät ist { name, product }. Produktname ist optional und wird händisch gepflegt.
+   Alte Stände speicherten Geräte als reine Strings – die Helfer bleiben abwärtskompatibel. */
+function devName(d) { return typeof d === "string" ? d : ((d && d.name) || ""); }
+function devProduct(d) { return (d && typeof d === "object") ? (d.product || "") : ""; }
+function mkDev(name, product) { return { name: name || "", product: product || "" }; }
+function normalizeSchemaDevices(schema) {
+  (schema.sites || []).forEach(site => {
+    if (!site.devices) { site.devices = {}; return; }
+    Object.keys(site.devices).forEach(lid => {
+      site.devices[lid] = (site.devices[lid] || []).map(d => mkDev(devName(d), devProduct(d)));
+    });
+  });
+}
+
 function defaultDevices(lid) {
-  if (lid === "compute") return ["Host 1", "Host 2", "Host 3"];
-  if (lid === "network") return ["Switch A", "Switch B"];
-  if (lid === "storage") return ["Storage"];
-  return ["Gerät 1"];
+  if (lid === "compute") return [mkDev("Host 1"), mkDev("Host 2"), mkDev("Host 3")];
+  if (lid === "network") return [mkDev("Switch A"), mkDev("Switch B")];
+  if (lid === "storage") return [mkDev("Storage")];
+  return [mkDev("Gerät 1")];
 }
 
 function defaultSite(name, tplKey) {
@@ -846,13 +860,15 @@ function syncSchemaHosts() {
   const s = state.schema;
   if (!s || !s.autoHosts || !state.scenarios.length) return false;
   const r = calcScenario(state.scenarios[0], calcIst());
-  const names = Array.from({ length: Math.max(1, r.hosts) }, (_, i) => "Host " + (i + 1));
+  const n = Math.max(1, r.hosts);
   let changed = false;
   s.sites.slice(0, 2).forEach(site => {
     if (!site.devices) site.devices = {};
     const cur = site.devices.compute || [];
-    if (cur.length !== names.length || cur.some((v, i) => v !== names[i])) {
-      site.devices.compute = names.slice();
+    // Namen auf Host 1..N setzen, vorhandene Produktnamen je Position erhalten
+    const next = Array.from({ length: n }, (_, i) => mkDev("Host " + (i + 1), devProduct(cur[i])));
+    if (cur.length !== n || cur.some((d, i) => devName(d) !== next[i].name)) {
+      site.devices.compute = next;
       changed = true;
     }
   });
@@ -923,8 +939,8 @@ function layoutSchema(schema) {
     const spangeLeft = mirror ? cx0 + 20 : cx0 + containerW - 20 - SCHEMA_BW;
 
     const put = (layerId, left, startY) => {
-      schemaDevices(site, layerId).forEach((name, idx) => {
-        placed.push({ si, layerId, idx, name, x: left, y: startY + idx * SCHEMA_ROWH, w: SCHEMA_BW, h: SCHEMA_BH, color: colorOf(layerId) });
+      schemaDevices(site, layerId).forEach((dev, idx) => {
+        placed.push({ si, layerId, idx, name: devName(dev), product: devProduct(dev), x: left, y: startY + idx * SCHEMA_ROWH, w: SCHEMA_BW, h: SCHEMA_BH, color: colorOf(layerId) });
       });
       return startY + schemaDevices(site, layerId).length * SCHEMA_ROWH;
     };
@@ -1018,7 +1034,14 @@ function drawSchemaSVG(schema) {
       }
     }
     boxes += `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" rx="8" fill="${cSurface}" stroke="${col}" stroke-width="1.5"/>`;
-    boxes += `<text x="${d.x + d.w / 2}" y="${d.y + d.h / 2}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="${cText}">${esc(d.name)}</text>`;
+    const cx = d.x + d.w / 2;
+    if (d.product) {
+      // Bezeichnung oben, geplanter Produktname klein darunter
+      boxes += `<text x="${cx}" y="${d.y + d.h / 2 - 5}" text-anchor="middle" dominant-baseline="central" font-size="11.5" fill="${cText}">${esc(d.name)}</text>`;
+      boxes += `<text x="${cx}" y="${d.y + d.h / 2 + 9}" text-anchor="middle" dominant-baseline="central" font-size="8.5" fill="${cText2}">${esc(d.product)}</text>`;
+    } else {
+      boxes += `<text x="${cx}" y="${d.y + d.h / 2}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="${cText}">${esc(d.name)}</text>`;
+    }
   });
 
   const title = schema.title
@@ -1046,10 +1069,13 @@ function renderSchemaMask() {
       ${s.layers.map(l => `
         <div class="field" style="margin-top:10px">
           <label>${esc(l.label)}</label>
-          ${schemaDevices(site, l.id).map((name, di) => `
-            <div style="display:flex;gap:6px;margin-bottom:5px">
-              <input type="text" data-dev="${l.id}" data-di="${di}" value="${esc(name)}">
-              <button class="ghost-del" data-deldev="${l.id}:${di}" title="Entfernen">✕</button>
+          ${schemaDevices(site, l.id).map((dev, di) => `
+            <div style="margin-bottom:8px">
+              <div style="display:flex;gap:6px">
+                <input type="text" data-dev="${l.id}" data-di="${di}" data-dfield="name" value="${esc(devName(dev))}">
+                <button class="ghost-del" data-deldev="${l.id}:${di}" title="Entfernen">✕</button>
+              </div>
+              <input type="text" data-dev="${l.id}" data-di="${di}" data-dfield="product" value="${esc(devProduct(dev))}" placeholder="Produkt (optional)" style="font-size:11px;padding:4px 8px;margin-top:3px;width:100%">
             </div>`).join("")}
           <button data-adddev="${l.id}" style="font-size:12px;padding:4px 10px">+ ${esc(l.label)}</button>
         </div>`).join("")}
@@ -1200,9 +1226,14 @@ $("#schemaSites").addEventListener("input", (e) => {
   if (e.target.dataset.sfield === "name") site.name = e.target.value;
   else if (e.target.dataset.dev !== undefined) {
     const lid = e.target.dataset.dev, di = +e.target.dataset.di;
-    if (site.devices[lid]) site.devices[lid][di] = e.target.value;
-    // Manuelle Compute-Änderung: Auto-Übernahme aus Sizing beenden, Eingabe bleibt erhalten.
-    if (lid === "compute" && state.schema.autoHosts) {
+    const field = e.target.dataset.dfield === "product" ? "product" : "name";
+    const dev = site.devices[lid] && site.devices[lid][di];
+    if (dev) {
+      if (typeof dev === "object") dev[field] = e.target.value;
+      else site.devices[lid][di] = mkDev(field === "name" ? e.target.value : devName(dev), field === "product" ? e.target.value : "");
+    }
+    // Manuelle Compute-Namensänderung: Auto-Übernahme aus Sizing beenden (Produkt-Eingabe zählt nicht).
+    if (lid === "compute" && field === "name" && state.schema.autoHosts) {
       state.schema.autoHosts = false;
       $("#schemaAutoHosts").checked = false;
     }
@@ -1222,7 +1253,7 @@ $("#schemaSites").addEventListener("click", (e) => {
     const lid = e.target.dataset.adddev;
     if (!site.devices[lid]) site.devices[lid] = [];
     const label = (schemaLayerById(state.schema, lid) || {}).label || "Gerät";
-    site.devices[lid].push(label + " " + (site.devices[lid].length + 1));
+    site.devices[lid].push(mkDev(label + " " + (site.devices[lid].length + 1)));
     if (lid === "compute") state.schema.autoHosts = false;
     renderSchemaMask(); drawSchema(); saveLocal();
   } else if (e.target.dataset.deldev !== undefined) {
@@ -1312,6 +1343,7 @@ function initFromState() {
   if (!state.schema.topology) state.schema.topology = "san";
   if (state.schema.storageControllers == null) state.schema.storageControllers = 2;
   if (state.schema.autoHosts == null) state.schema.autoHosts = false;  // bestehende Stände nicht überschreiben
+  normalizeSchemaDevices(state.schema);  // Geräte in { name, product }-Form bringen (Abwärtskompat.)
   $("#projectName").value = state.project || "";
   $("#htToggle").checked = !!state.ht;
   $("#priceWin").value = state.prices.win ?? "";
